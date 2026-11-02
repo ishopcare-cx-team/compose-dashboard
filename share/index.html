@@ -637,8 +637,12 @@ const fmtMin = m => m == null || isNaN(m) ? '—' : m < 60 ? `${Math.round(m)}�
 const validMinutes = m => m == null || isNaN(m) || m < 0 ? null : m;
 const avg = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
 // 매장명 비교 키: CS 리포트 storeKey + 원격팀 BrandMatch.keyOf와 같은 방식(브랜드명 · 공백 · 기호 제거)
-const skey = s => String(s || '').replace(/\s+/g, '').replace(/^(컴포즈커피|컴포즈)/, '').replace(/[\-_·․.,'"’“”()\[\]{}&\/+]/g, '').toLowerCase();
-const plainName = s => String(s || '').trim().replace(/^(컴포즈커피|컴포즈)\s*/, '') || String(s || '').trim();
+// 설치 리스트(매장 리스트 탭)는 '3100호점 성수코리아IT점'처럼 호점 번호를 앞에 붙이므로 그 번호도 떼고 비교합니다.
+const skey = s => String(s || '').replace(/\s+/g, '').replace(/^(컴포즈커피|컴포즈)/, '').replace(/^\d+호점/, '').replace(/^(컴포즈커피|컴포즈)/, '').replace(/[\-_·․.,'"’“”()\[\]{}&\/+]/g, '').toLowerCase();
+const plainName = s => String(s || '').trim().replace(/^(컴포즈커피|컴포즈)\s*/, '').replace(/^\d+호점\s*/, '') || String(s || '').trim();
+const branchNo = s => (String(s || '').match(/(\d+)호점/) || [])[1] || '';
+// 매장이 아닌 이름(테스트 · 아이샵케어 내부 계정)은 모든 원천에서 뺍니다.
+const STORE_EXCLUDE = /테스트|아이샵케어/;
 
 function guessChannel(text) {
   const t = String(text || '');
@@ -660,12 +664,12 @@ function buildModel(raw) {
   STORES = []; SM = {};
   const ensure = (name, from) => {
     const k = skey(name);
-    if (!k) return null;
+    if (!k || STORE_EXCLUDE.test(name)) return null;
     if (!SM[k]) { SM[k] = { key: k, name: plainName(name), code: '', kind: '', installed: '', check: null, listed: false, from: new Set(), events: [], inv: [] }; STORES.push(SM[k]); }
     SM[k].from.add(from);
     return SM[k];
   };
-  (raw.stores || []).forEach(s => { const o = ensure(s.name, 'list'); if (!o) return; Object.assign(o, { name: plainName(s.name), code: s.code || '', kind: s.kind || '', installed: s.installed || '', check: s.check || null, listed: true }); });
+  (raw.stores || []).forEach(s => { const o = ensure(s.name, 'list'); if (!o) return; Object.assign(o, { name: plainName(s.name), no: branchNo(s.name), code: s.code || '', kind: s.kind || '', installed: s.installed || '', check: s.check || null, listed: true }); });
 
   const issueByReceipt = {};
   // 펼침 키: 시트 순서로 붙입니다(새로고침해도 같은 줄이면 같은 키).
@@ -677,7 +681,7 @@ function buildModel(raw) {
   HAPPY = (raw.happy || []).map((h, n) => Object.assign({}, h, { key: `hc:${n}`, answers: HCQ.map((q, i) => { const a = (h.answers || [])[i]; return a && typeof a === 'object' ? a : { result: a || '', answer: '' }; }) }));
 
   // 1) CS 상담 내역 = 허브
-  RECS = (raw.consults || []).map(c => {
+  RECS = (raw.consults || []).filter(c => !STORE_EXCLUDE.test(c.store || '')).map(c => {
     const at = P(c.at); if (!at) return null;
     const st = ensure(c.store, 'cs'), iss = issueByReceipt[c.receipt];
     const done = P(c.doneAt), sl = c.slack || null;
@@ -709,7 +713,7 @@ function buildModel(raw) {
   // 2) 원격 AS → 같은 매장, 상담 뒤 3일 안(상담보다 30분 이른 기록까지)의 가장 가까운 상담. 원격지원 상담을 먼저 고릅니다.
   //    양쪽 글에서 장비를 알 수 있는데 서로 다르면(예: 프린터 요청 ↔ 키오스크 상담) 붙이지 않습니다.
   const sameDevice = (ch, text) => { const g = guessChannel(text); return ch === '기타' || g === '기타' || g === ch; };
-  const asRecs = (raw.remote && raw.remote.as || []).map(a => Object.assign({}, a, { at: P(`${a.date} ${a.time || '00:00'}`) })).filter(a => a.at).sort((x, y) => x.at - y.at);
+  const asRecs = (raw.remote && raw.remote.as || []).map(a => Object.assign({}, a, { at: P(`${a.date} ${a.time || '00:00'}`) })).filter(a => a.at && !STORE_EXCLUDE.test(a.store || a.branch || '')).sort((x, y) => x.at - y.at);
   let asLinked = 0;
   asRecs.forEach(a => {
     const k = skey(a.store || a.branch);
@@ -1163,7 +1167,7 @@ function storeDetail(s) {
   const iss = ISSUES.filter(i => skey(i.store) === s.key || skey(i.store).startsWith(s.key)), openIss = iss.filter(i => !/^완료/.test(i.status));
   const voc = VOC.filter(v => skey(v.store) === s.key), hc = HAPPY.find(x => skey(x.store) === s.key), stat = (l, v, sub) => `<div class="store-stat"><div class="label">${l}</div><b>${v}</b><small>${sub}</small></div>`;
   const evs = storeTimeline(s);
-  let h = `<div style="padding:10px 4px"><div class="hint" style="margin-bottom:12px">${s.code ? `OKPOS 매장코드 ${esc(s.code)} · ` : ''}설치 ${esc(s.installed || '—')}${s.kind ? ' · ' + esc(s.kind) : ''}${recent >= 3 ? ' · <span class="badge b-red">반복 문의 매장</span>' : ''}</div>
+  let h = `<div style="padding:10px 4px"><div class="hint" style="margin-bottom:12px">${s.no ? `${esc(s.no)}호점 · ` : ''}${s.code ? `OKPOS 매장코드 ${esc(s.code)} · ` : ''}설치 ${esc(s.installed || '—')}${s.kind ? ' · ' + esc(s.kind) : ''}${recent >= 3 ? ' · <span class="badge b-red">반복 문의 매장</span>' : ''}</div>
     <div class="store-stats">${stat('전체 접수', num(rs.length) + '건', `CS ${rs.filter(r => r.src === 'cs').length} · 원격 단독 ${rs.filter(r => r.src === 'oc').length}`)}${stat('최근 30일', num(recent) + '건', recent >= 3 ? '반복 문의' : '3회부터 반복')}${stat('원격 처리', num(rs.filter(r => r.remote).length) + '건', '원격팀 기록')}${stat('현장 방문', num(rs.filter(r => r.visit).length) + '건', '원격팀 기록')}${stat('미해결 이슈', num(openIss.length) + '건', `전체 ${iss.length}건`)}${stat('개선 요청', num(voc.length) + '건', '매장 VOC')}</div>
     <div class="grid2 even grid-gap"><div class="card" style="margin:0"><div class="card-head"><h3>🧰 장비 ${src('oc')}</h3></div>${equipTable(s)}</div>
     <div class="card" style="margin:0"><div class="card-head"><h3>✅ 장비 설정 체크 ${src('cs')}</h3><span class="hint">매장 사전체크</span></div>${checkBox(s)}</div></div>`;
@@ -1189,7 +1193,7 @@ function viewStores() {
   const p = paged('stores', list, 40), max = Math.max(0, ...list.map(s => info[s.key].n));
   return `<div class="card"><div class="card-head"><h3>지점 목록</h3><span class="hint">${scopes()[scope]} 기준 · 누르면 지점 상세가 아래로 펼쳐짐 · 상담 ${num(scoped.length)}건</span></div>${filterBar('stores', STORES, tags, list.length)}
     <div class="tbl-scroll"><table><thead><tr><th>지점</th><th>매장코드</th><th style="width:28%">접수</th><th class="num">원격</th><th class="num">방문</th><th class="num">진행 중</th><th>최근 30일</th><th>장비</th><th>설정 체크</th></tr></thead><tbody>
-    ${p.rows.map(s => { const o = info[s.key], key = `st:${s.key}`; return xrow(key, `<td><b>${esc(s.name)}</b>${caret(key)}${s.isNew ? ' <span class="tag warn">신규</span>' : ''}${s.listed ? '' : ' <span class="tag">리스트 없음</span>'}</td><td class="muted">${esc(s.code || '—')}</td><td><div class="hbar" style="padding:0"><div class="tr"><div class="fl" style="width:${max ? o.n / max * 100 : 0}%"></div></div><div class="v" style="flex-basis:46px"><b>${o.n}</b></div></div></td><td class="num">${o.remote || '·'}</td><td class="num">${o.visit || '·'}</td><td class="num">${o.open || '·'}</td><td>${o.recent}${o.recent >= 3 ? ' <span class="badge b-red">반복</span>' : ''}</td><td class="muted">${s.inv.length ? s.inv.length + '종' : '—'}</td><td>${checkSummary(s)}</td>`, 9, () => storeDetail(s)); }).join('') || `<tr><td colspan="9">${empty('조건에 맞는 지점이 없습니다.')}</td></tr>`}
+    ${p.rows.map(s => { const o = info[s.key], key = `st:${s.key}`; return xrow(key, `<td>${s.no ? `<span class="muted" style="font-size:12px">${esc(s.no)}호점</span> ` : ''}<b>${esc(s.name)}</b>${caret(key)}${s.isNew ? ' <span class="tag warn">신규</span>' : ''}${s.listed ? '' : ' <span class="tag">리스트 없음</span>'}</td><td class="muted">${esc(s.code || '—')}</td><td><div class="hbar" style="padding:0"><div class="tr"><div class="fl" style="width:${max ? o.n / max * 100 : 0}%"></div></div><div class="v" style="flex-basis:46px"><b>${o.n}</b></div></div></td><td class="num">${o.remote || '·'}</td><td class="num">${o.visit || '·'}</td><td class="num">${o.open || '·'}</td><td>${o.recent}${o.recent >= 3 ? ' <span class="badge b-red">반복</span>' : ''}</td><td class="muted">${s.inv.length ? s.inv.length + '종' : '—'}</td><td>${checkSummary(s)}</td>`, 9, () => storeDetail(s)); }).join('') || `<tr><td colspan="9">${empty('조건에 맞는 지점이 없습니다.')}</td></tr>`}
     </tbody></table></div>${pager('stores', p)}</div>`;
 }
 
