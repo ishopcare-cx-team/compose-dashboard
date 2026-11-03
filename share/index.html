@@ -387,6 +387,7 @@
   .parrow{flex:0 0 52px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; color:var(--gray2)}
   .parrow span{font-size:11px; font-weight:700; color:var(--accent-deep); white-space:nowrap} .parrow b{font-size:20px; line-height:1}
   @media (max-width:820px){ .pflow{flex-direction:column} .pstep{max-width:none} .parrow{flex-direction:row; flex-basis:auto; padding:4px 0} .parrow b{transform:rotate(90deg)} }
+  .raw-text{font-size:12.5px; color:var(--gray); margin-top:4px} .raw-text summary{cursor:pointer; font-weight:700; color:var(--accent-deep)} .raw-text div{margin-top:4px; white-space:pre-wrap; overflow-wrap:anywhere}
   .more-cats summary{cursor:pointer; font-size:12.5px; font-weight:700; color:var(--accent-deep); padding:8px 4px 2px}
   /* 처리 내역: 처리 구분 칸(원격팀 대시보드 색) */
   .proc-tiles{display:grid; grid-template-columns:repeat(9,minmax(0,1fr)); gap:10px; margin-bottom:20px}
@@ -759,7 +760,7 @@ function buildModel(raw) {
     const inflow = sl && sl.source && sl.source !== '콜라비' ? sl.source : /현장/.test(c.route || '') ? '현장' : /원격/.test(c.route || '') ? '원격팀' : '콜라비';
     return { id: c.receipt || (c.slackOnly ? `슬랙-${c.at.slice(2, 16).replace(/[- :]/g, '')}` : `CS-${c.at}`), src: 'cs', inflow, slackOnly: !!c.slackOnly, at, date: ymd(at), store: st ? st.name : (c.store || '—'), skey: st ? st.key : '', slack: sl,
       channel: iss && CHANNELS.includes(iss.channel) ? iss.channel : CHANNELS.includes(aiChannel) ? aiChannel : guessChannel([c.major, c.middle, c.minor, c.question].join(' ')),
-      cat: [c.major, c.middle].filter(Boolean).join(' · ') || '미분류', q: c.question, a: c.answer, route: c.route || '—', cx: c.cx || '',
+      cat: [c.major, c.middle].filter(Boolean).join(' · ') || '미분류', q: c.qTidy || c.question, a: c.qTidy ? (c.aTidy || '') : c.answer, qRaw: c.question, aRaw: c.answer, tidy: !!c.qTidy, route: c.route || '—', cx: c.cx || '',
       method: c.method || '—', status: c.status || '처리중', doneAt: done, minutes: validMinutes(c.minutes != null ? c.minutes : done ? (done - at) / 60000 : null),
       toss: c.tossAsked ? { asked: P(c.tossAsked), done: P(c.tossDone) } : null, csOwner: c.owner || '', csAction: c.action || '', issue: iss || null, remote: null, visit: null };
   }).filter(Boolean);
@@ -1319,7 +1320,8 @@ function recDetail(r) {
     ? { name: '처리 완료', color: 'var(--green)', t: r.doneAt, time: r.doneAt ? dt(r.doneAt).slice(5) : '완료', text: total != null ? `총 ${fmtMin(total)} 걸림` : (r.method === 'CS안내' ? 'CS 안내로 해결' : '') }
     : { name: stage(r), color: 'var(--orange)', t: null, time: '진행 중', text: `접수 후 ${fmtMin((TODAY - r.at) / 60000)} 지남` });
   const chips = [[r.method, '처리 방식'], [r.channel, '장비·채널'], [r.cat, '문의유형'], [total != null && done ? `총 ${fmtMin(total)}` : '', '소요']].filter(x => x[0] && x[0] !== '—');
-  return `<div class="flow"><div class="facts">${chips.map(([v, k]) => `<span>${k} <b>${esc(v)}</b></span>`).join('')}${r.slackOnly ? '<span class="tag warn">상담 내역 입력 전 · 슬랙 기준</span>' : ''}${r.src === 'oc' && CS_LAST && r.date > CS_LAST ? '<span class="tag warn">콜라비 입력 전일 수 있음</span>' : ''}${r.slack && r.slack.link ? `<a class="link internal" href="${esc(r.slack.link)}" target="_blank" rel="noopener">슬랙에서 보기 ↗</a>` : ''}</div>${flowHtml(steps)}</div>`;
+  const raw = r.tidy && VIEWER.internal && mode !== 'share' ? `<details class="raw-text"><summary>원문 보기</summary><div><b>문의</b> ${esc(r.qRaw || '—')}</div><div><b>안내</b> ${esc(r.aRaw || '—')}</div></details>` : '';
+  return `<div class="flow"><div class="facts">${chips.map(([v, k]) => `<span>${k} <b>${esc(v)}</b></span>`).join('')}${r.slackOnly ? '<span class="tag warn">상담 내역 입력 전 · 슬랙 기준</span>' : ''}${r.src === 'oc' && CS_LAST && r.date > CS_LAST ? '<span class="tag warn">콜라비 입력 전일 수 있음</span>' : ''}${r.slack && r.slack.link ? `<a class="link internal" href="${esc(r.slack.link)}" target="_blank" rel="noopener">슬랙에서 보기 ↗</a>` : ''}</div>${flowHtml(steps)}${raw}</div>`;
 }
 function viewRecords() {
   const scoped = RECS.filter(r => inPeriod(r.at)), rows = recFilter('records', scoped, REC_TAGS), s = stats(rows), p = paged('records', rows, 30);
