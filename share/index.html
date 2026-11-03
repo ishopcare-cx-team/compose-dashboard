@@ -851,10 +851,32 @@ function buildModel(raw) {
   });
   CS_LAST = RECS.filter(r => r.src === 'cs' && !r.slackOnly).reduce((m, r) => r.date > m ? r.date : m, '');
   RECS = RECS.concat(orphans).sort((a, b) => b.at - a.at);
+  linkReinflow();
   STORES.forEach(buildInventory);
   STORES.forEach(s => { s.isNew = !!s.installed && (TODAY - P(s.installed)) < 60 * 864e5 && P(s.installed) <= TODAY; });
   LINKSTAT = { toss: (raw.toss || []).length, tossLinked, cs: RECS.filter(r => r.src === 'cs').length, slack: raw.slackStat || { total: 0, matched: 0 }, as: asRecs.length, asLinked, asOrphan: asRecs.length - asLinked, csOnly, visitAs, visitLinked,
     unlisted: STORES.filter(s => !s.listed && s.from.has('oc') && !s.from.has('cs')).map(s => s.name) };
+}
+// 재인입 연결: 매장명이 먼저(같은 매장의 7일 안 이전 건), 그다음 내용으로 이전 이슈의 연장선인지 봅니다.
+//  · 문의에 '재인입 · 재문의 · 동일 증상 · 다시 · 여전히 · 아직 · 계속' 같은 말이 있으면 연장선
+//  · 그런 말이 없어도 사흘 안에 같은 장비 · 채널(기타 제외)로 다시 들어왔고 이전 건이 아직 안 끝났거나 같은 문의유형이면 연장선
+const REINFLOW_WORDS = /재\s*인입|재\s*문의|재\s*요청|재\s*발생|동일\s*(?:이슈|증상|건|문의|오류)|같은\s*(?:증상|문제|오류)|다시|여전히|아직|계속|또\s/;
+function linkReinflow() {
+  const bySk = {};
+  RECS.forEach(r => { r.prevRec = null; r.nextRecs = []; if (r.skey) (bySk[r.skey] = bySk[r.skey] || []).push(r); });
+  Object.values(bySk).forEach(list => {
+    list.sort((a, b) => a.at - b.at);
+    list.forEach((r, i) => {
+      for (let j = i - 1; j >= 0; j--) {
+        const p = list[j], gap = (r.at - p.at) / 864e5;
+        if (gap > 7) break;
+        if (gap < 0.003) continue;   // 같은 시각(같은 건의 다른 기록)은 건너뜀
+        const words = REINFLOW_WORDS.test(String(r.q || '') + ' ' + String(r.qRaw || ''));
+        const sameTopic = gap <= 3 && r.channel !== '기타' && r.channel === p.channel && (p.status !== '완료' || r.cat === p.cat);
+        if (words || sameTopic) { r.prevRec = p; p.nextRecs.push(r); break; }
+      }
+    });
+  });
 }
 function startOfDay(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
 function mentionItems(text) {
@@ -1181,10 +1203,10 @@ const REC_LINK = r => r.src === 'oc' ? (r.cxHandoff ? 'CX 이관(상담 미입�
 const REC_TAGS = [
   { key: 'inflow', label: '인입 채널', get: r => r.inflow, order: INFLOWS }, { key: 'channel', label: '장비·채널', get: r => r.channel, order: CHANNELS },
   { key: 'cat', label: '문의유형', get: r => r.cat }, { key: 'method', label: '처리 방식', get: r => r.method },
-  { key: 'status', label: '처리상태', get: r => r.status }, { key: 'link', label: '연결', get: REC_LINK }
+  { key: 'status', label: '처리상태', get: r => r.status }, { key: 'link', label: '연결', get: REC_LINK }, { key: 're', label: '재인입', get: r => r.prevRec ? '재인입(이전 건 연장)' : r.nextRecs && r.nextRecs.length ? '이후 재인입 있음' : '' }
 ];
 const recFilter = (k, rows, tags) => applyFilter(k, rows, { store: r => r.store, text: REC_TEXT, tags });
-const recRow = r => xrow(`rec:${r.id}`, `<td style="white-space:nowrap"><b>${esc(r.id)}</b>${caret(`rec:${r.id}`)}</td><td style="white-space:nowrap">${dt(r.at).slice(5)}</td><td>${inflowTag(r.inflow)}</td><td><b>${esc(r.store)}</b></td><td>${esc(r.cat)}</td><td>${esc(r.channel)}</td><td>${methodBadge(r.method)}</td><td class="num">${fmtMin(r.minutes)}</td><td>${statusBadge(r.status)}</td><td>${r.slackOnly ? '<span class="tag warn">슬랙만</span> ' : ''}${r.src === 'oc' ? `<span class="src-tag src-oc">${r.cxHandoff ? 'CX 이관' : r.remote ? '원격 자체' : '현장 자체'}</span>${CS_LAST && r.date > CS_LAST ? ' <span class="tag warn" title="콜라비 입력 전일 수 있음">확인 대기</span>' : ''}` : r.remote && r.remote.linked ? '<span class="src-tag src-oc">연결</span>' : r.remote ? '<span class="tag warn">CS만</span>' : '<span class="muted">—</span>'}</td>`, 10, () => recDetail(r));
+const recRow = r => xrow(`rec:${r.id}`, `<td style="white-space:nowrap"><b>${esc(r.id)}</b>${caret(`rec:${r.id}`)}</td><td style="white-space:nowrap">${dt(r.at).slice(5)}</td><td>${inflowTag(r.inflow)}</td><td><b>${esc(r.store)}</b></td><td>${esc(r.cat)}</td><td>${esc(r.channel)}</td><td>${methodBadge(r.method)}</td><td class="num">${fmtMin(r.minutes)}</td><td>${statusBadge(r.status)}</td><td>${r.prevRec ? '<span class="tag red" title="이전 건의 연장선">재인입</span> ' : ''}${r.slackOnly ? '<span class="tag warn">슬랙만</span> ' : ''}${r.src === 'oc' ? `<span class="src-tag src-oc">${r.cxHandoff ? 'CX 이관' : r.remote ? '원격 자체' : '현장 자체'}</span>${CS_LAST && r.date > CS_LAST ? ' <span class="tag warn" title="콜라비 입력 전일 수 있음">확인 대기</span>' : ''}` : r.remote && r.remote.linked ? '<span class="src-tag src-oc">연결</span>' : r.remote ? '<span class="tag warn">CS만</span>' : '<span class="muted">—</span>'}</td>`, 10, () => recDetail(r));
 const REC_HEAD = '<thead><tr><th>접수번호</th><th>접수일시</th><th>인입</th><th>매장명</th><th>문의유형</th><th>장비·채널</th><th>처리 방식</th><th class="num">처리 시간</th><th>처리상태</th><th>원격</th></tr></thead>';
 
 /* ================================================================ 화면 */
@@ -1289,7 +1311,8 @@ function flowHtml(steps) {
 function recDetail(r) {
   const steps = [], done = r.status === '완료';
   const inName = r.src === 'oc' ? (r.cxHandoff ? 'CX 이관' : r.remote ? '원격팀 접수' : '현장 접수') : `${r.inflow || 'CX'} 인입`;
-  steps.push({ name: inName, color: 'var(--s1)', t: r.at, time: dt(r.at).slice(5), who: r.cx, text: r.q || '문의 내용 없음', sub: r.src === 'cs' ? r.a : '', subLabel: '안내 ' });
+  if (r.prevRec) { const p = r.prevRec; steps.push({ name: '이전 건', color: 'var(--gray2)', t: p.at, time: `${dt(p.at).slice(5)} · ${p.id}`, who: '', text: p.q || p.cat, sub: [p.remote && p.remote.action, p.status].filter(Boolean).join(' · '), subLabel: '결과 ', badge: '재인입' }); }
+  steps.push({ name: r.prevRec ? `재인입 · ${inName}` : inName, color: 'var(--s1)', t: r.at, time: dt(r.at).slice(5), who: r.cx, text: r.q || '문의 내용 없음', sub: r.src === 'cs' ? r.a : '', subLabel: '안내 ' });
   if (r.toss) {
     const q = r.toss.slack || {};
     steps.push({ name: '토스플레이스 확인', color: 'var(--purple)', t: r.toss.asked, time: r.toss.asked ? dt(r.toss.asked).slice(5) : '', text: q.answer || (r.toss.done ? '회신 받음' : '회신 기다리는 중'),
@@ -1323,7 +1346,8 @@ function recDetail(r) {
   steps.push(done
     ? { name: '처리 완료', color: 'var(--green)', t: r.doneAt, time: r.doneAt ? dt(r.doneAt).slice(5) : '완료', text: total != null ? `총 ${fmtMin(total)} 걸림` : (r.method === 'CS안내' ? 'CS 안내로 해결' : '') }
     : { name: stage(r), color: 'var(--orange)', t: null, time: '진행 중', text: `접수 후 ${fmtMin((TODAY - r.at) / 60000)} 지남` });
-  const chips = [[r.method, '처리 방식'], [r.channel, '장비·채널'], [r.cat, '문의유형'], [total != null && done ? `총 ${fmtMin(total)}` : '', '소요']].filter(x => x[0] && x[0] !== '—');
+  const nexts = (r.nextRecs || []).map(n => `${n.id}(${dt(n.at).slice(5)})`).join(', ');
+  const chips = [[nexts ? `이후 재인입 ${nexts}` : '', '연결'], [r.method, '처리 방식'], [r.channel, '장비·채널'], [r.cat, '문의유형'], [total != null && done ? `총 ${fmtMin(total)}` : '', '소요']].filter(x => x[0] && x[0] !== '—');
   const raw = r.tidy && VIEWER.internal && mode !== 'share' ? `<details class="raw-text"><summary>원문 보기</summary><div><b>문의</b> ${esc(r.qRaw || '—')}</div><div><b>안내</b> ${esc(r.aRaw || '—')}</div></details>` : '';
   return `<div class="flow"><div class="facts">${chips.map(([v, k]) => `<span>${k} <b>${esc(v)}</b></span>`).join('')}${r.slackOnly ? '<span class="tag warn">상담 내역 입력 전 · 슬랙 기준</span>' : ''}${r.src === 'oc' && CS_LAST && r.date > CS_LAST ? '<span class="tag warn">콜라비 입력 전일 수 있음</span>' : ''}${r.slack && r.slack.link ? `<a class="link internal" href="${esc(r.slack.link)}" target="_blank" rel="noopener">슬랙에서 보기 ↗</a>` : ''}</div>${flowHtml(steps)}${raw}</div>`;
 }
