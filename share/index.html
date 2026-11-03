@@ -1675,9 +1675,10 @@ function viewGuide() {
   const q = flt('guide').q, editing = GEDIT === view;
   const tools = !canEditGuide() ? '' : editing
     ? `<span class="g-tools"><button class="btn sm" data-gfmt="bold" title="굵게"><b>B</b></button><button class="btn sm" data-gfmt="insertUnorderedList">• 목록</button><button class="btn sm" data-gfmt="insertOrderedList">1. 목록</button><button class="btn sm" data-gfmt="removeFormat">서식 지우기</button></span>
+       <span class="g-tools"><button class="btn sm" data-gadd="card" title="커서가 있는 카드 아래(없으면 맨 아래)에 새 카드">＋ 카드</button><button class="btn sm" data-gadd="blk" title="커서가 있는 문장 블록 아래에 새 블록(스크립트 · 안내 문장)">＋ 문장 블록</button><button class="btn sm" data-gadd="row" title="커서가 있는 표 줄 아래에 새 줄">＋ 표 줄</button><button class="btn sm" data-gadd="del" title="커서가 있는 카드 · 블록 지우기">지우기</button></span>
        <button class="btn sm" data-gedit-reset>기본 내용으로</button><button class="btn sm" data-gedit-cancel>취소</button><button class="btn sm primary" data-gedit-save ${GBUSY ? 'disabled' : ''}>${GBUSY ? '저장 중…' : '저장'}</button>`
     : '<button class="btn sm" data-gedit>✏️ 이 페이지 고치기</button>';
-  const bar = `<div class="fbar" data-fk="guide">${editing ? '<span class="hint" style="flex:1 1 260px">글자를 바로 눌러 고치세요. 카드 · 스크립트 문장 · 표 칸 모두 고칠 수 있어요.</span>' : `<input type="search" data-f="q" placeholder="🔍 가이드 내용 키워드" value="${esc(q)}" aria-label="가이드 내용 검색" style="flex:1 1 260px">${q ? '<button class="btn sm" data-freset>조건 지우기</button>' : ''}`}<span class="fbar-end"><span class="hint" id="guideHits"></span>${tools}</span></div>`;
+  const bar = `<div class="fbar" data-fk="guide">${editing ? '<span class="hint" style="flex:1 1 260px">글자를 바로 눌러 고치세요. 새 내용은 넣을 자리에 커서를 두고 ＋ 버튼을 누르세요.</span>' : `<input type="search" data-f="q" placeholder="🔍 가이드 내용 키워드" value="${esc(q)}" aria-label="가이드 내용 검색" style="flex:1 1 260px">${q ? '<button class="btn sm" data-freset>조건 지우기</button>' : ''}`}<span class="fbar-end"><span class="hint" id="guideHits"></span>${tools}</span></div>`;
   const err = GERR ? `<div class="notice danger"><span class="k">저장 실패</span><span class="t">${esc(GERR)}</span></div>` : '';
   return `${bar}${err}<div class="guide ${editing ? 'g-editing' : ''}">${editing && GDRAFT != null ? GDRAFT : srcEl.innerHTML}</div>`;
 }
@@ -2048,7 +2049,20 @@ document.querySelectorAll('.grp').forEach(g => {
   if (saved(`ctd-grp-${g.dataset.g}`) === 'closed') g.classList.add('closed');
   g.addEventListener('click', () => save(`ctd-grp-${g.dataset.g}`, g.classList.toggle('closed') ? 'closed' : 'open'));
 });
-host.addEventListener('mousedown', e => { const b = e.target.closest('[data-gfmt]'); if (b) { e.preventDefault(); document.execCommand(b.dataset.gfmt, false, null); } });
+host.addEventListener('mousedown', e => {
+  const b = e.target.closest('[data-gfmt]'); if (b) { e.preventDefault(); document.execCommand(b.dataset.gfmt, false, null); return; }
+  const add = e.target.closest('[data-gadd]'); if (!add) return;
+  e.preventDefault();
+  const g = host.querySelector('.guide.g-editing'); if (!g) return;
+  const sel = window.getSelection(), at = sel && sel.anchorNode ? (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement) : null;
+  const inside = at && g.contains(at) ? at : null, make = html => { const d = document.createElement('div'); d.innerHTML = html.trim(); return d.firstChild; };
+  const place = (node, ref, fallback) => { if (ref) ref.after(node); else fallback.appendChild(node); const r = document.createRange(); r.selectNodeContents(node.querySelector('h3, .g-qt, td, .g-say, p') || node); sel.removeAllRanges(); sel.addRange(r); };
+  const k = add.dataset.gadd;
+  if (k === 'card') { const ref = inside && inside.closest('.g-card'), box = (ref && ref.parentElement) || g.querySelector('.g-stack') || g; place(make('<div class="g-card"><h3 class="g-h3">새 항목 제목</h3><p class="g-lead">내용을 적어 주세요.</p></div>'), ref, box); }
+  else if (k === 'blk') { const ref = inside && inside.closest('.g-blk'), card = inside && inside.closest('.g-col, .g-card'); place(make('<div class="g-blk"><p class="g-qt">새 문장 제목</p><div class="g-say">말할 내용 · 안내 문장을 적어 주세요.</div></div>'), ref, card || g.querySelector('.g-stack') || g); }
+  else if (k === 'row') { const tr = inside && inside.closest('tr'); if (!tr || !tr.closest('tbody')) { alert('표 안의 줄에 커서를 두고 눌러 주세요.'); return; } const n = tr.children.length; place(make(`<table><tbody><tr>${'<td>새 칸</td>'.repeat(n)}</tr></tbody></table>`).querySelector('tr'), tr, tr.parentElement); }
+  else if (k === 'del') { const t = inside && (inside.closest('tr') && inside.closest('tbody') ? inside.closest('tr') : inside.closest('.g-blk') || inside.closest('.g-card')); if (!t || !g.contains(t)) { alert('지울 카드 · 블록 · 표 줄 안에 커서를 두고 눌러 주세요.'); return; } if (confirm('커서가 있는 ' + (t.tagName === 'TR' ? '표 줄' : t.classList.contains('g-blk') ? '문장 블록' : '카드') + '을(를) 지울까요?')) t.remove(); }
+});
 const tip = document.getElementById('tip');
 document.addEventListener('mousemove', e => { const g = e.target.closest && e.target.closest('[data-tip]'); document.querySelectorAll('.chart g.on').forEach(x => x !== g && x.classList.remove('on')); if (!g) { tip.style.opacity = 0; return; } if (g.tagName === 'g') g.classList.add('on'); tip.innerHTML = g.dataset.tip; tip.style.opacity = 1; tip.style.left = Math.min(window.innerWidth - tip.offsetWidth - 8, e.clientX + 14) + 'px'; tip.style.top = (e.clientY - 44) + 'px'; });
 const themeBtn = document.getElementById('themeBtn');
