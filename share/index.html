@@ -377,6 +377,10 @@
   .proc-tile{display:flex; flex-direction:column; align-items:flex-start; gap:4px; padding:12px 14px; border:1px solid var(--line-soft); border-left:4px solid var(--c); border-radius:12px; background:var(--canvas); box-shadow:var(--shadow); cursor:pointer; font-family:inherit; color:var(--ink); text-align:left}
   .proc-tile span{font-size:13px; font-weight:700; color:var(--gray)} .proc-tile b{font-size:24px; font-weight:800}
   .proc-tile:hover{background:var(--surface2)} .proc-tile.on{outline:2px solid var(--c); outline-offset:-1px}
+  /* 장비 고치기 · 출처 비교 */
+  .eq-grid{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:0 12px; align-items:end}
+  @media (max-width:820px){ .eq-grid{grid-template-columns:minmax(0,1fr)} }
+  .src-compare{margin-top:12px; padding:12px 14px; border-radius:12px; background:var(--surface2); border:1px solid var(--line-soft); font-size:13px}
   /* 업데이트 첨부 · 크게 보기 */
   .upd-att{border:1px dashed var(--line); border-radius:12px; padding:12px; display:grid; gap:10px}
   .upd-att-head{display:flex; flex-wrap:wrap; gap:6px 12px; align-items:baseline; font-size:13px}
@@ -1174,7 +1178,7 @@ function viewOverview() {
   const L = LINKSTAT;
   h += `<div class="card internal"><div class="card-head"><h3>데이터 연결 상태 <span class="internal-mark">내부</span></h3><span class="hint">슬랙 기록은 상담일시 + 상담사로, 원격팀 기록은 같은 매장 + 가까운 시각(원격 AS ${LINK.AS_DAYS}일, 현장 방문 ${LINK.VISIT_DAYS}일)으로 연결</span></div>
     <div class="ov-tiles" style="--n:5;margin-bottom:12px">${tile('슬랙 기록 연결', `${num(L.slack.matched)}/${num(L.slack.total)}`, '건', `슬랙만 있음 ${num(L.slack.only || 0)}건 · ${L.slack.excludeReady ? `테스트 · X 이모지 ${num(L.slack.excluded || 0)}건 뺌` : '테스트 · X 이모지: 슬랙 토큰 필요'}`, { c: 'var(--accent)' })}${tile('원격 AS 연결', `${num(L.asLinked)}/${num(L.as)}`, '건', `원격 단독 ${num(L.asOrphan)}건(CS 상담 없음)`, { c: 'var(--s2)' })}${tile('방문 AS 연결', `${num(L.visitLinked)}/${num(L.visitAs)}`, '건', '현장 방문 AS 기준', { c: 'var(--s3)' })}${tile('CS만 있는 원격지원', num(L.csOnly), '건', '원격팀 기록과 연결 안 됨', { c: 'var(--orange)' })}${tile('매장 리스트에 없는 매장', num(L.unlisted.length), '곳', '원격 기록에만 있는 매장명', { c: 'var(--red)' })}</div>
-    ${L.unlisted.length ? `<div class="hint">매장명 확인 필요: ${L.unlisted.slice(0, 15).map(esc).join(', ')}${L.unlisted.length > 15 ? ' 외' : ''}</div>` : ''}</div>`;
+    ${L.unlisted.length ? `<div class="hint">매장명 확인 필요: ${L.unlisted.slice(0, 15).map(esc).join(', ')}${L.unlisted.length > 15 ? ' 외' : ''}</div>` : ''}${sourceCompare()}</div>`;
   const live = base.filter(r => r.status !== '완료');
   h += `<div class="card"><div class="card-head"><h3>진행 중</h3><span class="hint">${num(live.length)}건 · 누르면 아래로 펼쳐짐</span></div>`
     + (live.length ? `<div class="tbl-scroll"><table><thead><tr><th>접수번호</th><th>접수일시</th><th>인입</th><th>매장</th><th>장비·채널</th><th>현재 단계</th><th>경과</th><th>CX</th><th>원격</th></tr></thead><tbody>${live.slice(0, 40).map(r => xrow(`rec:${r.id}`, `<td style="white-space:nowrap">${esc(r.id)}${caret(`rec:${r.id}`)}</td><td>${dt(r.at).slice(5)}</td><td>${inflowTag(r.inflow)}</td><td><b>${esc(r.store)}</b></td><td>${esc(r.channel)}</td><td><span class="badge ${stage(r).includes('토스') ? 'b-toss' : 'b-open'}">${stage(r)}</span></td><td>${fmtMin((TODAY - r.at) / 60000)}${(TODAY - r.at) > 864e5 ? ' <span class="badge b-red">지연</span>' : ''}</td><td>${esc(r.cx || '—')}</td><td>${r.remote ? esc(r.remote.owner || '—') : '<span class="muted">—</span>'}</td>`, 9, () => recDetail(r))).join('')}</tbody></table></div>` : empty('진행 중인 건이 없습니다.')) + `</div>`;
@@ -1262,6 +1266,44 @@ function equipTable(s) {
   if (!s.inv.length) return '<div class="empty">원격팀 기록에서 확인된 장비가 없습니다.<br><span class="hint">현장 방문(설치) 기록이 생기기 전에 설치된 매장은 원격팀 장비 조회에서 수기로 채우면 여기에 보입니다.</span></div>';
   return `<div class="tbl-scroll"><table class="nowrap"><thead><tr><th>장비</th><th class="num">수량</th><th>모델</th><th>상태</th><th>설치</th><th>최근 교체</th><th>최근 AS·점검</th><th class="num">기록</th></tr></thead><tbody>${s.inv.map(o => `<tr><td><b>${esc(o.name)}</b>${o.edited ? ' <span class="tag">수기</span>' : ''}</td><td class="num">${o.qty || '—'}</td><td class="muted">${esc(o.models.join(', ') || '—')}</td><td>${o.removed ? `<span class="muted">회수 ${o.removed}</span>` : o.qty ? '운영중' : '<span class="muted">설치 기록 없음</span>'}</td><td>${o.first || '—'}</td><td style="${o.replaced ? 'color:var(--orange);font-weight:700' : ''}">${o.replaced || '—'}</td><td>${o.lastAs || '—'}</td><td class="num">${o.n || '·'}</td></tr>`).join('')}</tbody></table></div>`;
 }
+// 원격팀 파일 ↔ 슬랙 직접 수집 건수 비교(내부용 · 데이터 연결 상태 카드)
+function sourceCompare() {
+  const c = RAW.remote && RAW.remote.compare; if (!c) return '';
+  if (!c.ready) return '<div class="hint" style="margin-top:8px">슬랙 직접 수집: 아직 실행 전입니다(편집기에서 runCollectNow · setupCollectTrigger).</div>';
+  const cats = [...new Set(Object.keys(c.as.ocByCat || {}).concat(Object.keys(c.as.slackByCat || {})))];
+  const diff = (a, b) => a === b ? '<span class="ok">일치</span>' : `<span class="ng">차이 ${b - a > 0 ? '+' : ''}${b - a}</span>`;
+  const rep = c.report && c.report.remote ? Object.entries(c.report.remote).map(([k, v]) => `${esc(k)} ${esc(v)}`).join(' · ') : '';
+  return `<div class="src-compare"><b>원격 데이터 출처</b> · 지금 화면은 <b>${c.source === 'slack' ? '슬랙 직접 수집' : '원격팀 파일'}</b> 기준 · 슬랙 수집 ${esc(c.lastRun)}
+    ${c.from && c.to ? `<div class="tbl-scroll"><table class="nowrap" style="margin-top:8px"><thead><tr><th>${esc(c.from)} ~ ${esc(c.to)}</th><th class="num">원격팀 파일</th><th class="num">슬랙 직접 수집</th><th>비교</th></tr></thead><tbody>
+      <tr><td>원격 처리 전체</td><td class="num">${c.as.oc}</td><td class="num">${c.as.slack}</td><td>${diff(c.as.oc, c.as.slack)}</td></tr>
+      ${cats.map(k => { const a = (c.as.ocByCat || {})[k] || 0, b = (c.as.slackByCat || {})[k] || 0; return `<tr><td class="muted">· ${esc((PROC_BY[k] || {}).name || k)}</td><td class="num">${a}</td><td class="num">${b}</td><td>${diff(a, b)}</td></tr>`; }).join('')}
+      <tr><td>현장 방문</td><td class="num">${c.visits.oc}</td><td class="num">${c.visits.slack}</td><td>${diff(c.visits.oc, c.visits.slack)}</td></tr></tbody></table></div>` : ''}
+    ${rep ? `<div class="hint">채널별 이번 수집: ${rep}${c.report.visits ? ' · ' + esc(c.report.visits) : ''}</div>` : ''}</div>`;
+}
+// 장비 수기 고치기(내부용): 장비 종류를 골라 수량 · 모델 · 설치일 · 최근 교체를 고치거나 숨깁니다. 고친 값은 '수집' 시트에 남습니다.
+let EQ_EDIT = '', EQ_BUSY = false, EQ_ERR = '';
+function equipEditor(s) {
+  if (!VIEWER.internal || mode === 'share') return '';
+  if (EQ_EDIT !== s.key) return `<div class="controls" style="justify-content:flex-end;margin-top:8px"><button class="btn sm" data-eq-edit="${esc(s.key)}">✏️ 장비 고치기</button></div>`;
+  const types = window.EquipParse ? Object.values(EquipParse.TYPE_MAP) : [];
+  const cur = s.inv[0] || {};
+  return `<div class="upd-form card eq-form" data-eq-form="${esc(s.key)}" style="margin:10px 0 0;box-shadow:none;border:1px solid var(--yellow)"><div class="card-head" style="margin-bottom:8px"><h3>장비 고치기 · ${esc(s.name)}</h3><span class="hint">같은 장비 종류를 다시 저장하면 덮어씁니다 · 비워 둔 칸은 원래 값을 그대로 씁니다</span></div>
+    <div class="eq-grid"><label>장비 종류<select name="type">${types.map(t => `<option value="${esc(t.key)}" ${t.key === cur.type ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}</select></label>
+      <label>수량<input name="qty" type="number" min="0" max="99" value="${cur.qty || ''}"></label><label>모델<input name="model" value="${esc((cur.models || [])[0] || '')}"></label>
+      <label>설치일<input name="installed" type="date" value="${esc(cur.first || '')}"></label><label>최근 교체<input name="replaced" type="date" value="${esc(cur.replaced || '')}"></label>
+      <label class="chk-line"><input type="checkbox" name="hidden"> 이 장비 숨기기</label></div>
+    ${EQ_ERR ? `<div class="notice danger" style="margin:8px 0 0"><span class="k">저장 실패</span><span class="t">${esc(EQ_ERR)}</span></div>` : ''}
+    <div class="controls" style="justify-content:flex-end;margin-top:8px"><button class="btn" data-eq-cancel>취소</button><button class="btn primary" data-eq-save="${esc(s.key)}" ${EQ_BUSY ? 'disabled' : ''}>${EQ_BUSY ? '저장 중…' : '저장'}</button></div></div>`;
+}
+function saveEquip(key) {
+  const f = host.querySelector(`[data-eq-form="${key}"]`), s = SM[key]; if (!f || !s) return;
+  const v = n => f.querySelector(`[name=${n}]`);
+  const edit = { branch: s.name, type: v('type').value, qty: v('qty').value, model: v('model').value.trim(), installed: v('installed').value, replaced: v('replaced').value, hidden: v('hidden').checked };
+  if (!IS_GAS) { EQ_ERR = '미리보기에서는 저장하지 않습니다(회사 계정 화면에서 저장됩니다).'; render(); return; }
+  EQ_BUSY = true; EQ_ERR = ''; render();
+  google.script.run.withSuccessHandler(() => { EQ_BUSY = false; EQ_EDIT = ''; load(false, true); })
+    .withFailureHandler(e => { EQ_BUSY = false; EQ_ERR = (e && e.message) || String(e); render(); }).saveEquipEdit(edit);
+}
 // 장비 이력: '상담' 칸의 접수번호를 누르면 그 줄 아래에 상담 상세가 펼쳐집니다.
 function equipHistory(s) {
   if (!s.events.length) return empty('이력이 없습니다.');
@@ -1331,7 +1373,7 @@ function viewEquip() {
   h += `<div class="card"><div class="card-head"><h3>🧰 장비 조회</h3><span class="hint">장비 기록 있음 ${list.filter(s => s.inv.length).length}곳 · 설정 체크 미완료 ${list.filter(s => checkMissing(s).length).length}곳</span></div>${filterBar('equip', STORES, tags, list.length)}
     <div class="tbl-scroll"><table><thead><tr><th>지점</th><th>장비</th><th class="num">기록</th><th>최근 기록</th><th>설정 체크 ${src('cs')}</th></tr></thead><tbody>
     ${p.rows.map(s => { const miss = checkMissing(s), key = `eq:${s.key}`; return xrow(key, `<td style="font-weight:700;color:var(--accent-deep);white-space:nowrap">${esc(s.name)}${caret(key)}</td><td>${s.inv.length ? s.inv.map(o => `<span class="eq-item ${o.removed ? 'off' : ''}">${esc(o.name)}${o.qty > 1 ? ' ×' + o.qty : ''}</span>`).join('') : '<span class="muted">장비 기록 없음</span>'}</td><td class="num">${s.events.length || '·'}</td><td>${s.events[0] ? esc(s.events[0].date) : '—'}</td><td>${checkSummary(s)}${miss.length ? ` <span class="tag red">${miss.map(c => esc(c.short || c.col)).join(', ')}</span>` : ''}</td>`, 5,
-      () => `<div style="padding:10px 4px"><div class="hint" style="margin-bottom:10px">${s.code ? `OKPOS 매장코드 ${esc(s.code)} · ` : ''}설치 ${esc(s.installed || '—')}</div>${equipTable(s)}
+      () => `<div style="padding:10px 4px"><div class="hint" style="margin-bottom:10px">${s.code ? `OKPOS 매장코드 ${esc(s.code)} · ` : ''}설치 ${esc(s.installed || '—')}</div>${equipTable(s)}${equipEditor(s)}
         <div class="grid2" style="margin-top:14px"><div class="card" style="margin:0"><div class="card-head"><h3>장비 이력 ${src('oc')}</h3><span class="hint">최신순 · ${s.events.length}건</span></div>${equipHistory(s)}</div>
         <div class="card" style="margin:0"><div class="card-head"><h3>✅ 장비 설정 체크 ${src('cs')}</h3></div>${checkBox(s)}</div></div></div>`); }).join('') || `<tr><td colspan="5">${empty('조건에 맞는 지점이 없습니다.')}</td></tr>`}
     </tbody></table></div>${pager('equip', p)}</div>`;
@@ -1703,6 +1745,10 @@ host.addEventListener('click', e => {
   if (e.target.closest('[data-closeall]')) { OPEN.clear(); render(); return; }
   const rs = e.target.closest('[data-freset]'); if (rs) { const k = rs.closest('[data-fk]').dataset.fk; F[k] = { store: '', q: '', tags: {} }; PG[k] = 1; render(); return; }
   const ht = e.target.closest('[data-hct]'); if (ht) { hcType = ht.dataset.hct; render(); return; }
+  // 장비 고치기
+  const ee = e.target.closest('[data-eq-edit]'); if (ee) { EQ_EDIT = ee.dataset.eqEdit; EQ_ERR = ''; render(); return; }
+  if (e.target.closest('[data-eq-cancel]')) { EQ_EDIT = ''; EQ_ERR = ''; render(); return; }
+  const es = e.target.closest('[data-eq-save]'); if (es) { if (!EQ_BUSY) saveEquip(es.dataset.eqSave); return; }
   // 업데이트: 새 글 · 고치기 · 저장 · 취소 · 지우기(한 번 더 확인)
   if (e.target.closest('[data-upd-new]')) { resetForm(); UPD_EDIT = 'new'; UPD_ERR = ''; render(); return; }
   const ue = e.target.closest('[data-upd-edit]'); if (ue) { resetForm(); UPD_EDIT = ue.dataset.updEdit; UPD_ERR = ''; render(); return; }
@@ -1783,7 +1829,7 @@ try { const t = localStorage.getItem('ctd-theme'); if (t) document.documentEleme
   }
   // 서버가 페이지에 데이터를 실어 보냈으면(미리 계산된 캐시) 추가 요청 없이 바로 그리고, 없으면 불러옵니다.
   if (typeof DATA_SLOT === 'object' && DATA_SLOT) showData(DATA_SLOT); else load(false);
-  if (IS_GAS || STATIC) setInterval(() => { if (!document.hidden) load(false, true); }, AUTO_REFRESH_MINUTES * 60000);
+  if (IS_GAS || STATIC) setInterval(() => { if (!document.hidden && !EQ_EDIT && !host.querySelector('.upd-form')) load(false, true); }, AUTO_REFRESH_MINUTES * 60000);
   if (hs.includes('share') && document.querySelector('#modeSeg [data-m="share"]')) document.querySelector('#modeSeg [data-m="share"]').click();
   if (hs.includes('open') && RAW) { const r = RECS.find(x => x.remote && x.remote.linked && x.visit && !x.visit.pending); if (r) { OPEN.add(`rec:${r.id}`); flt('records').q = r.id; scope = r.at >= addDay(TODAY, -30) ? '30d' : 'm' + r.date.slice(0, 7); if (!scopes()[scope]) scope = '30d'; render(); } } }
 </script>
