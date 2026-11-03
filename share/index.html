@@ -488,6 +488,7 @@
     <div class="top-actions">
       <span class="updated"><span class="src-tag src-cs">CS</span> <span id="csTime">—</span> · <span class="src-tag src-oc">원격</span> <span id="ocTime">—</span></span>
       <div class="seg" id="modeSeg" title="공유용 = 토스플레이스 공유 화면"><button data-m="internal" class="on">내부용</button><button data-m="share">공유용</button></div>
+      <button class="btn internal" id="slackNowBtn" title="최근 6시간 슬랙 글을 바로 읽어 반영(30초 안팎)">슬랙 지금 가져오기</button>
       <button class="btn" id="refreshBtn">새로고침</button>
       <button class="btn" id="themeBtn">🌙</button>
     </div>
@@ -673,7 +674,8 @@ const IS_GAS = typeof google !== 'undefined' && google.script && google.script.r
 const STATIC = (typeof STATIC_SLOT === 'object' && STATIC_SLOT) || null;
 const VIEWER = STATIC ? { internal: false, internalUrl: STATIC.internalUrl || '' }
   : (typeof VIEWER_SLOT === 'object' && VIEWER_SLOT) || { internal: true, internalUrl: '' };
-const AUTO_REFRESH_MINUTES = 5;
+// 화면 자동 새로고침: Apps Script 화면은 미리 계산된 캐시를 읽어 가벼우므로 1분, github.io는 파일 캐시(5분) 때문에 5분
+const AUTO_REFRESH_MINUTES = (typeof STATIC_SLOT === 'object' && STATIC_SLOT) ? 5 : 1;
 const CHANNELS = ['포스(PC,포스기)','포스(태블릿)','프론트','키오스크','프린터','대시보드','앱오더','배달','기타'];
 // 해피콜 질문: 서버가 CS 리포트 설정(happyQuestions)을 보내면 그것을, 없으면(가상 데이터) 아래 기본값을 씁니다.
 const HC_DEFAULT = [
@@ -1906,6 +1908,14 @@ document.getElementById('ctlHost').addEventListener('change', e => {
   perChanged();
 });
 document.getElementById('refreshBtn').addEventListener('click', () => load(true));
+// [슬랙 지금 가져오기]: 이슈가 생겼을 때 5분 자동 수집을 기다리지 않고 바로 반영(회사 계정 화면만)
+document.getElementById('slackNowBtn').addEventListener('click', e => {
+  const b = e.currentTarget; if (b.disabled) return;
+  if (!IS_GAS || !VIEWER.internal) { b.textContent = '회사 계정 화면에서만'; setTimeout(() => { b.textContent = '슬랙 지금 가져오기'; }, 2000); return; }
+  b.disabled = true; b.textContent = '가져오는 중… (30초 안팎)';
+  const end = t => { b.disabled = false; b.textContent = t; setTimeout(() => { b.textContent = '슬랙 지금 가져오기'; }, 4000); };
+  google.script.run.withSuccessHandler(() => { end('반영 완료 ✓'); load(false, true); }).withFailureHandler(err => end('실패: ' + ((err && err.message) || err).slice(0, 30))).collectSlackNow();
+});
 host.addEventListener('click', e => {
   if (e.target.closest('[data-closeall]')) { OPEN.clear(); render(); return; }
   const rs = e.target.closest('[data-freset]'); if (rs) { const k = rs.closest('[data-fk]').dataset.fk; F[k] = { store: '', q: '', tags: {} }; PG[k] = 1; render(); return; }
