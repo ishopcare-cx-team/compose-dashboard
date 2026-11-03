@@ -770,8 +770,9 @@ function buildModel(raw) {
     (byStore[k] || []).forEach(c => {
       const diff = (at - c.at) / 60000;
       if (diff < -earlyMin || diff > days * 1440 || !ok(c)) return;
-      // 가까운 시각이 먼저. 처리 방식이 다르면 하루만큼, 장비가 달라 보이면 반나절만큼 뒤로 미룹니다(장비 추정은 글자 기준이라 막지는 않음).
-      const score = Math.abs(diff) + (prefer(c) ? 0 : 1440) + (penalty ? penalty(c) : 0);
+      // 시간 순서가 먼저: 상담 뒤에 생긴 원격 기록(상담 → 원격)을 앞서 생긴 것보다 늘 먼저 고릅니다(앞선 기록은 이틀만큼 뒤로).
+      // 그다음 가까운 시각. 처리 방식이 다르면 2시간, 장비가 달라 보이면 4시간만큼만 뒤로 미룹니다.
+      const score = (diff < 0 ? 2880 - diff : diff) + (prefer(c) ? 0 : 120) + (penalty ? penalty(c) : 0);
       if (score < bestScore) { bestScore = score; best = c; }
     });
     return best;
@@ -786,8 +787,9 @@ function buildModel(raw) {
   let asLinked = 0;
   asRecs.forEach(a => {
     const k = skey(a.store || a.branch);
-    const remote = { owner: a.emp, start: a.at, req: a.req, action: a.note, intake: a.intake, status: a.status, cat: a.cat || 'as', linked: true };
-    const c = nearest(k, a.at, LINK.AS_EARLY_MIN, LINK.AS_DAYS, x => x.src === 'cs' && !(x.remote && x.remote.linked), x => x.method === '원격지원' || x.method === '방문점검', x => sameDevice(x.channel, `${a.req} ${a.note}`) ? 0 : 720);
+    const remote = { owner: a.emp, start: a.at, req: a.req, action: a.note, intake: a.intake, status: a.status, cat: a.cat || 'as', linked: true,
+      ackBy: a.ackBy || '', ackAt: P(a.ackAt), startBy: a.startBy || '', startAt: P(a.startAt), result: a.result || '', resultAt: P(a.resultAt) };
+    const c = nearest(k, a.at, LINK.AS_EARLY_MIN, LINK.AS_DAYS, x => x.src === 'cs' && !(x.remote && x.remote.linked), x => x.method === '원격지원' || x.method === '방문점검', x => sameDevice(x.channel, `${a.req} ${a.note}`) ? 0 : 240);
     if (c) { c.remote = Object.assign(remote, { handoff: c.at }); asLinked++; }
     // 콜라비(상담 내역)와 대조해 같은 매장 상담 이력이 없으면 원격팀 자체 인입입니다. 단, CX 이관 표시(컴포즈 이모지)가 있으면 CX 인입(콜라비)입니다.
     else ocRec({ id: `원격-${a.date.slice(2).replace(/-/g, '.')}-${pad(orphans.length + 1)}`, inflow: a.cx ? '콜라비' : '원격팀', cxHandoff: !!a.cx, unlinked: true, store: a.store || a.branch, at: a.at, channel: guessChannel(`${a.req} ${a.note}`),
@@ -801,7 +803,7 @@ function buildModel(raw) {
   RECS.forEach(r => {
     const sl = r.slack; if (!sl || !sl.ownerAt) return;
     if (!r.remote) r.remote = { owner: sl.owner, start: null, handoff: r.at, action: sl.action || r.csAction, linked: false };
-    r.remote.ackAt = P(sl.ownerAt); r.remote.owner = sl.owner || r.remote.owner;
+    r.remote.ackAt = r.remote.ackAt || P(sl.ownerAt); r.remote.owner = sl.owner || r.remote.owner;
   });
 
   // 3) 현장 방문: 설치는 장비 이력 · 설치일, AS는 상담(10일 안)에 붙입니다.
@@ -817,7 +819,7 @@ function buildModel(raw) {
     if (v.kind !== 'AS') { VISIT_ONLY.push({ id: `${v.kind || '방문'}-${ymd(vd).slice(2).replace(/-/g, '.')}-${pad(VISIT_ONLY.length + 1)}`, at: vd, date: ymd(vd), store: st.name, skey: st.key, kind: v.kind || '기타', type, equip: v.equip, by: v.assignee, pending: v.status !== 'done' }); return; }
     visitAs++;
     const end = new Date(vd); end.setHours(23, 59);
-    const c = nearest(st.key, end, 0, LINK.VISIT_DAYS, x => !x.visit, x => x.method === '방문점검' || (x.remote && x.remote.linked), x => sameDevice(x.channel, v.equip) ? 0 : 720);
+    const c = nearest(st.key, end, 0, LINK.VISIT_DAYS, x => !x.visit, x => x.method === '방문점검' || (x.remote && x.remote.linked), x => sameDevice(x.channel, v.equip) ? 0 : 240);
     const visit = { date: vd, by: v.assignee, action: v.equip, kind: type, pending: v.status !== 'done' };
     if (c) { ev.rec = c.id; visit.days = Math.max(0, Math.round((vd - startOfDay(c.remote && c.remote.start || c.at)) / 864e5)); c.visit = visit; visitLinked++; if (c.src === 'cs' && c.method !== '방문점검') c.method = '방문점검'; }
     else ev.rec = ocRec({ id: `방문-${ymd(vd).slice(2).replace(/-/g, '.')}-${pad(orphans.length + 1)}`, inflow: '현장', store: v.store, at: P(`${v.date} ${v.time || '00:00'}`) || vd, channel: guessChannel(v.equip),
@@ -1289,9 +1291,20 @@ function recDetail(r) {
       sub: r.toss.done ? `${dt(r.toss.done).slice(5)} 회신 · ${fmtMin(tossWait(r))}` : '', subLabel: '' });
   }
   if (r.remote) {
-    const R = r.remote, st = R.ackAt || R.start;
-    steps.push({ name: '원격 지원', color: 'var(--s2)', t: st, time: st ? dt(st).slice(5) : '착수 전', who: R.owner, text: R.action || (done ? '원격으로 처리 완료' : '처리 내용 등록 전') });
+    const R = r.remote;
+    // 원격 채널 이모지 단계: 'OO확인' → '원격OO'(착수) → 카테고리 이모지(처리 결과). 시각을 모르면 원격팀 접수 시각으로 한 칸에 모읍니다.
+    if (R.ackAt || R.ackBy) steps.push({ name: '원격 확인', color: 'var(--s2)', t: R.ackAt, time: R.ackAt ? dt(R.ackAt).slice(5) : '확인', who: R.ackBy || R.owner, text: '' });
+    if (R.startAt || R.startBy) steps.push({ name: '원격 착수', color: 'var(--s2)', t: R.startAt, time: R.startAt ? dt(R.startAt).slice(5) : '착수', who: R.startBy || R.owner, text: '' });
+    if (!R.ackAt && !R.ackBy && !R.startAt && !R.startBy) { const st = R.start; steps.push({ name: '원격 지원', color: 'var(--s2)', t: st, time: st ? dt(st).slice(5) : '착수 전', who: R.owner, text: '' }); }
+    // 처리 결과: 결과 이모지가 있거나 완료된 건만 칸을 만들고, 진행 중이면 댓글로 본 내용만 '처리 중' 칸에 둡니다(마지막 '진행 중' 칸과 겹치지 않게).
+    if (R.result || done) steps.push({ name: R.result || '원격 처리 완료', color: 'var(--green)', t: R.resultAt, time: R.resultAt ? dt(R.resultAt).slice(5) : '완료', text: R.action || '' });
+    else if (R.action) steps.push({ name: '처리 중 메모', color: 'var(--orange)', t: null, time: '진행 중', text: R.action });
   }
+  // 협업채널에 같은 매장이 나온 글(상담 하루 전 ~ 사흘 뒤): 글 요약과 댓글로 본 처리 결과
+  (CANDS || []).filter(c => c.channel === '협업채널' && c.store && String(c.store).split(/,\s*/).map(skey).includes(r.skey)).forEach(c => {
+    const t = P(`${c.date} ${c.time}`); if (!t || t < addDay(r.at, -1) || t > addDay(r.at, 3)) return;
+    steps.push({ name: '협업채널 공유', color: 'var(--purple)', t, time: dt(t).slice(5), text: c.title || c.summary, sub: c.reply || '', subLabel: '결과 ' });
+  });
   if (r.visit) {
     const V = r.visit;
     const endOfDay = new Date(V.date); endOfDay.setHours(23, 59);
