@@ -819,7 +819,7 @@ function buildModel(raw) {
     if (!asked) return;
     let best = null, bestDiff = Infinity;
     RECS.forEach(r => { if (r.src !== 'cs' || !keys.includes(r.skey)) return; const d = Math.abs(asked - r.at); if (d <= 864e5 && d < bestDiff && !(r.toss && r.toss.slack)) { best = r; bestDiff = d; } });
-    const info = { asked, done: done || (t.status === '회신' ? asked : null), slack: { question: t.question, answer: t.answer, status: t.status } };
+    const info = { asked, done: done || (t.status === '회신' ? asked : null), slack: { question: t.question, answer: t.answer, status: t.status, channel: t.channel || '고객센터-플레이스' } };
     if (best) { best.toss = Object.assign({}, best.toss || {}, info, { asked: (best.toss && best.toss.asked) || asked, done: (best.toss && best.toss.done) || info.done }); tossLinked++; }
     else { const st = SM[keys[0]]; TOSS_ONLY.push(Object.assign({ id: `토플-${t.date.slice(2).replace(/-/g, '.')}-${pad(n + 1)}`, at: asked, date: ymd(asked), store: st ? st.name : t.store, skey: keys[0] || '' }, info)); }
   });
@@ -1468,7 +1468,7 @@ const procTag = k => { const p = PROC_BY[k] || PROC_BY.inquiry; return `<span cl
 // 토스플레이스 확인 카드(상담에 붙은 것 · 상담 없이 슬랙에만 있는 것 공통)
 function tossCard(t, r) {
   const wait = t.done && t.asked ? (t.done - t.asked) / 60000 : null, q = t.slack || {};
-  return `<div class="fc t"><div class="fh">토스플레이스 확인 ${q.question !== undefined ? '<span class="src-tag src-cs">슬랙 · 고객센터-플레이스</span>' : src('cs')}</div><div class="kv"><div><span>문의 시각</span><b>${t.asked ? dt(t.asked) : '—'}</b></div><div><span>회신</span><b>${t.done ? dt(t.done) + (wait != null ? ' · ' + fmtMin(wait) : '') : '확인 기다리는 중'}</b></div></div>
+  return `<div class="fc t"><div class="fh">토스플레이스 확인 ${q.question !== undefined ? `<span class="src-tag src-cs">슬랙 · ${esc(q.channel || '고객센터-플레이스')}</span>` : src('cs')}</div><div class="kv"><div><span>문의 시각</span><b>${t.asked ? dt(t.asked) : '—'}</b></div><div><span>회신</span><b>${t.done ? dt(t.done) + (wait != null ? ' · ' + fmtMin(wait) : '') : '확인 기다리는 중'}</b></div></div>
     ${q.question ? `<div class="hint" style="margin-bottom:4px">문의: ${esc(q.question)}</div>` : ''}${q.answer ? `<div class="fb">${esc(q.answer)}</div>` : ''}</div>`;
 }
 function visitOnlyCard(v) {
