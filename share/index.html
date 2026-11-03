@@ -177,7 +177,7 @@
   .hbar .nm{flex:0 0 132px; font-size:13.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
   .hbar .tr{flex:1; height:12px; background:var(--surface); border-radius:6px; overflow:hidden}
   .hbar .fl{height:100%; background:var(--bar); border-radius:0 4px 4px 0; min-width:4px}
-  .hbar .v{flex:0 0 112px; white-space:nowrap; text-align:right; font-size:12.5px; color:var(--gray); font-variant-numeric:tabular-nums}
+  .hbar .v{flex:0 0 auto; min-width:44px; white-space:nowrap; text-align:left; font-size:12.5px; color:var(--gray); font-variant-numeric:tabular-nums}
   .hbar .v b{color:var(--ink); font-size:14px}
 
   .stack{display:flex; gap:2px; height:30px; border-radius:8px; overflow:hidden; margin:6px 0 10px}
@@ -371,6 +371,17 @@
   .per-more input[type=date]{font-family:inherit; font-size:13.5px; padding:7px 10px; border:1px solid var(--line); border-radius:10px; background:var(--canvas); color:var(--ink)}
   .per-label{font-size:13.5px; font-weight:700; padding:0 6px; white-space:nowrap}
   .man-card .att-grid{margin-top:6px} .man-body p{margin:4px 0} .man-body ol,.man-body ul{padding-left:20px; margin:4px 0} .man-body li{margin:2px 0}
+  /* 상세 흐름: 단계 카드를 가로로 잇고, 화살표 위에 걸린 시간 */
+  .pflow{display:flex; align-items:stretch; gap:0; overflow-x:auto; padding:4px 2px 8px}
+  .pstep{flex:1 1 0; min-width:150px; max-width:340px; background:var(--canvas); border:1px solid var(--line-soft); border-top:4px solid var(--c); border-radius:12px; padding:11px 13px; display:flex; flex-direction:column; gap:5px}
+  .ps-h{font-size:13.5px; font-weight:800; color:var(--ink)} .ps-badge{font-size:11px; font-weight:700; color:var(--gray); background:var(--surface); border-radius:6px; padding:1px 6px; margin-left:4px}
+  .ps-t{font-size:12px; color:var(--gray); font-variant-numeric:tabular-nums}
+  .ps-b{font-size:13px; line-height:1.55; white-space:pre-wrap; overflow-wrap:anywhere}
+  .ps-s{font-size:12.5px; line-height:1.5; color:var(--ink-soft); background:var(--surface); border-radius:8px; padding:6px 8px; white-space:pre-wrap; overflow-wrap:anywhere} .ps-s span{font-weight:700; color:var(--gray)}
+  .parrow{flex:0 0 52px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; color:var(--gray2)}
+  .parrow span{font-size:11px; font-weight:700; color:var(--accent-deep); white-space:nowrap} .parrow b{font-size:20px; line-height:1}
+  @media (max-width:820px){ .pflow{flex-direction:column} .pstep{max-width:none} .parrow{flex-direction:row; flex-basis:auto; padding:4px 0} .parrow b{transform:rotate(90deg)} }
+  .more-cats summary{cursor:pointer; font-size:12.5px; font-weight:700; color:var(--accent-deep); padding:8px 4px 2px}
   /* 처리 내역: 처리 구분 칸(원격팀 대시보드 색) */
   .proc-tiles{display:grid; grid-template-columns:repeat(9,minmax(0,1fr)); gap:10px; margin-bottom:20px}
   @media (max-width:1180px){ .proc-tiles{grid-template-columns:repeat(4,minmax(0,1fr))} }
@@ -1006,6 +1017,13 @@ function perRange() {
   const s = P(PER.week); return [s, addDay(s, 7)];
 }
 const inPeriod = at => { if (!at) return false; const [s, e] = perRange(); return at >= s && at < e; };
+// 바로 앞 같은 길이의 기간(전일 · 전주 · 전월 · 같은 일수만큼 앞)
+function prevPeriodRange() {
+  const [s, e] = perRange();
+  if (PER.mode === 'month') return [new Date(s.getFullYear(), s.getMonth() - 1, 1), s];
+  return [new Date(s.getTime() - (e - s)), s];
+}
+const inPrevPeriod = at => { if (!at) return false; const [s, e] = prevPeriodRange(); return at >= s && at < e; };
 const md = d => `${d.getMonth() + 1}/${d.getDate()}(${'일월화수목금토'[d.getDay()]})`;
 function perLabel() {
   const [s, e] = perRange(), last = addDay(e, -1);
@@ -1159,16 +1177,16 @@ const REC_HEAD = '<thead><tr><th>접수번호</th><th>접수일시</th><th>인�
 /* ================================================================ 화면 */
 function viewOverview() {
   const tags = REC_TAGS.filter(t => ['inflow', 'channel', 'method'].includes(t.key));
-  const base = recFilter('overview', RECS, tags), rows = base.filter(inScope), prev = base.filter(prevScope), s = stats(rows), p = stats(prev);
+  const base = recFilter('overview', RECS, tags), rows = base.filter(r => inPeriod(r.at)), prev = base.filter(r => inPrevPeriod(r.at)), s = stats(rows), p = stats(prev);
   const sq = skey(flt('overview').store), byStore = x => !sq || skey(x.store).includes(sq);
   const openIssues = ISSUES.filter(i => byStore(i) && !/^완료/.test(i.status)).length + VOC.filter(v => byStore(v) && !['완료', '보류'].includes(v.status)).length, d = s.total - p.total;
-  let h = filterBar('overview', RECS.filter(inScope), tags, rows.length);
+  let h = filterBar('overview', RECS.filter(r => inPeriod(r.at)), tags, rows.length);
   // 공유용(토스플레이스): 상담 건수 · 평균 해결 시간 · 시간대별 상담 추이 · 문의 유형 · 처리 흐름만 보여 줍니다.
   if (mode === 'share') {
-    const types = countBy(rows.filter(r => r.src === 'cs'), r => r.cat).slice(0, 10);
-    h += `<div class="ov-tiles" style="--n:2">${tile('상담 건수', num(s.total), '건', `${scopes()[scope]} · 이전 기간 ${num(p.total)}건 (${d >= 0 ? '+' : '−'}${num(Math.abs(d))})`, { grand: true })}${tile('평균 해결 시간', fmtMin(s.avgMin), '', `이전 기간 ${fmtMin(p.avgMin)} · CS 완료 기준(방문 · 토스플레이스 확인 제외)`, { c: 'var(--s1)' })}</div>`;
-    h += `<div class="card"><div class="card-head"><h3>시간대별 상담 추이</h3><span class="hint">${scopes()[scope]} · 접수 시각 기준 · 합계 ${num(s.total)}건</span></div>${hourChart(rows)}</div>`;
-    h += `<div class="grid2 even grid-gap"><div class="card"><div class="card-head"><h3>문의 유형</h3><span class="hint">상위 10개</span></div>${types.length ? hbars(types, types[0][1]) : empty('없음')}</div>`
+    const types = countBy(rows.filter(r => r.src === 'cs'), r => r.cat);
+    h += `<div class="ov-tiles" style="--n:2">${tile('상담 건수', num(s.total), '건', `${perLabel()} · 이전 기간 ${num(p.total)}건 (${d >= 0 ? '+' : '−'}${num(Math.abs(d))})`, { grand: true })}${tile('평균 해결 시간', fmtMin(s.avgMin), '', `이전 기간 ${fmtMin(p.avgMin)} · CS 완료 기준(방문 · 토스플레이스 확인 제외)`, { c: 'var(--s1)' })}</div>`;
+    h += `<div class="card"><div class="card-head"><h3>시간대별 상담 추이</h3><span class="hint">${perLabel()} · 접수 시각 기준 · 합계 ${num(s.total)}건</span></div>${hourChart(rows)}</div>`;
+    h += `<div class="grid2 even grid-gap"><div class="card"><div class="card-head"><h3>문의 유형</h3><span class="hint">전체 ${num(types.length)}개</span></div>${types.length ? hbars(types, types[0][1]) : empty('없음')}</div>`
       + `<div class="card"><div class="card-head"><h3>처리 흐름</h3></div>${methodStack(s)}<div class="flow-stats">
         <div class="fstat"><span>상담 → 원격 착수</span><div><b>${fmtMin(s.avgWait)}</b><small>평균</small></div></div>
         <div class="fstat"><span>원격 → 현장 방문</span><div><b>${s.avgVisitDays == null ? '—' : s.avgVisitDays.toFixed(1)}</b><small>일 평균</small></div></div>
@@ -1187,8 +1205,8 @@ function viewOverview() {
         <div class="fstat"><span>CX 상담 → 원격 착수 <small>(슬랙 담당 확인)</small></span><div><b>${fmtMin(s.avgWait)}</b><small>평균</small></div></div>
         <div class="fstat"><span>원격 → 현장 방문</span><div><b>${s.avgVisitDays == null ? '—' : s.avgVisitDays.toFixed(1)}</b><small>일 평균</small></div></div>
         <div class="fstat"><span>토스플레이스 회신 <small>(${num(s.toss)}건 · 대기 ${num(s.tossOpen)})</small></span><div><b>${fmtMin(s.avgToss)}</b><small>평균</small></div></div></div></div></div>`;
-  const cats = countBy(rows.filter(r => r.src === 'cs'), r => r.cat).slice(0, 8), chs = countBy(rows, r => r.channel), ins = countBy(rows, r => r.inflow);
-  h += `<div class="grid2 even grid-gap"><div class="card"><div class="card-head"><h3>문의유형 상위 ${src('cs')}</h3><span class="hint">상위 8개</span></div>${cats.length ? hbars(cats, cats[0][1]) : empty('없음')}</div>
+  const catsAll = countBy(rows.filter(r => r.src === 'cs'), r => r.cat), cats = catsAll.slice(0, 8), catsMore = catsAll.slice(8), chs = countBy(rows, r => r.channel), ins = countBy(rows, r => r.inflow);
+  h += `<div class="grid2 even grid-gap"><div class="card"><div class="card-head"><h3>문의유형 상위 ${src('cs')}</h3><span class="hint">상위 8개 · 전체 ${num(catsAll.length)}개</span></div>${cats.length ? hbars(cats, cats[0][1]) : empty('없음')}${catsMore.length ? `<details class="more-cats" ${OPEN.has('ov:cats') ? 'open' : ''}><summary data-toggle-key="ov:cats">나머지 ${num(catsMore.length)}개 펼치기</summary>${hbars(catsMore, cats[0][1])}</details>` : ''}</div>
     <div class="card"><div class="card-head"><h3>장비·채널별 ${src('both')}</h3><span class="hint">원격 건수 함께 표시</span></div>${chs.length ? hbars(chs.map(([k, v]) => [k, v, `원격 ${rows.filter(r => r.channel === k && r.remote).length}`]), chs[0][1]) : empty('없음')}</div></div>`;
   h += `<div class="card"><div class="card-head"><h3>인입 채널별</h3><span class="hint">콜라비 · 원격팀 · 법인폰 · 현장</span></div>${ins.length ? hbars(ins, ins[0][1]) : empty('없음')}</div>`;
   // 반복 문의 매장: 누르면 그 매장의 최근 30일 기록이 아래로 펼쳐집니다.
@@ -1219,7 +1237,7 @@ function ownerCard(rows) {
   });
   const list = Object.values(m).sort((a, b) => b.own - a.own || b.done - a.done);
   if (!list.length) return '';
-  return `<div class="card"><div class="card-head"><h3>담당자별 처리</h3><span class="hint">슬랙 이모지 기준 · ${scopes()[scope]}</span></div>
+  return `<div class="card"><div class="card-head"><h3>담당자별 처리</h3><span class="hint">슬랙 이모지 기준 · ${perLabel()}</span></div>
     <div class="tbl-scroll"><table><thead><tr><th>담당자</th><th class="num">원격 담당</th><th class="num">진행 중</th><th class="num">착수까지 평균</th><th class="num">처리완료 표시</th><th class="num">조치 등록</th></tr></thead><tbody>
     ${list.map(o => `<tr><td><b>${esc(o.name)}</b></td><td class="num">${o.own || '·'}</td><td class="num">${o.open || '·'}</td><td class="num">${o.waits.length ? fmtMin(avg(o.waits)) : '—'}</td><td class="num">${o.done || '·'}</td><td class="num">${o.action || '·'}</td></tr>`).join('')}</tbody></table></div></div>`;
 }
@@ -1240,29 +1258,47 @@ function slackCard(r) {
     <div class="tl">${rows.map((e, i) => `<div class="tl-i ${/원격|조치/.test(e[1]) ? 'oc' : ''}"><div class="w">${dt(e[0])}${i ? ` · +${fmtMin((e[0] - rows[0][0]) / 60000)}` : ''}</div><div class="x"><b>${esc(e[1])}</b>${e[2] ? ' · ' + esc(e[2]) : ''}</div></div>`).join('')}</div>
     ${sl.status && sl.doneAt ? `<div class="hint">마지막 상태 이모지: ${esc(sl.status)}${sl.by ? ' · ' + esc(sl.by) : ''}</div>` : ''}</div>`;
 }
+// 상세: 무엇을 문의했고 → 어떻게 해결했고 → 얼마나 걸렸는지를 가로 흐름 한 줄로 보여 줍니다.
+// 단계: 인입(+CX 안내) → 토스플레이스 확인 → 원격 지원 → 현장 방문 · AS → 처리 완료. 단계 사이 화살표에 걸린 시간을 적습니다.
+function flowHtml(steps) {
+  let prevT = null;
+  return `<div class="pflow">${steps.map((st, i) => {
+    const gap = i && st.t && prevT && st.t >= prevT ? (st.t - prevT) / 60000 : null;
+    if (st.t) prevT = st.t;
+    return (i ? `<div class="parrow"><span>${st.gapLabel || (gap != null ? fmtMin(gap) : '')}</span><b>→</b></div>` : '')
+      + `<div class="pstep" style="--c:${st.color}"><div class="ps-h">${esc(st.name)}${st.badge ? ` <span class="ps-badge">${esc(st.badge)}</span>` : ''}</div>
+        <div class="ps-t">${esc(st.time || '—')}${st.who ? ` · ${esc(st.who)}` : ''}</div>
+        ${st.text ? `<div class="ps-b">${esc(st.text)}</div>` : ''}${st.sub ? `<div class="ps-s"><span>${esc(st.subLabel || '')}</span>${esc(st.sub)}</div>` : ''}</div>`;
+  }).join('')}</div>`;
+}
 function recDetail(r) {
-  const facts = [['접수 시각', dt(r.at)], ['인입 채널', r.inflow], ['인입 경로', r.route]];
-  if (r.doneAt) facts.push(['처리 완료', `${dt(r.doneAt)}${r.minutes != null ? ' · ' + fmtMin(r.minutes) : ''}`]);
-  if (r.cx) facts.push(['CX 담당', r.cx]);
-  let h = `<div class="flow"><div class="facts">${facts.map(([k, v]) => `<span>${k} <b>${esc(v)}</b></span>`).join('')}</div>`;
-  if (r.slackOnly) h += `<div class="notice" style="margin:0"><span class="k">슬랙만 있음</span><span class="t">CS 리포트 '상담 내역'에 아직 옮겨지지 않은 슬랙 글입니다. CS 리포트가 옮기면 다음 새로고침부터 접수번호가 붙은 상담으로 바뀝니다.</span></div>`;
-  if (r.src === 'cs') h += `<div class="fc q"><div class="fh">Q · 문의내용 ${src('cs')}</div><div class="fb">${esc(r.q || '—')}</div></div><div class="fc a"><div class="fh">A · 안내/답변내용 ${src('cs')}</div><div class="fb">${esc(r.a || '—')}</div></div>`;
-  else h += `<div class="fc q"><div class="fh">${r.cxHandoff ? 'CX 이관 원격 요청' : r.remote ? '원격팀 자체 인입' : '현장 자체 인입'} ${src('oc')}</div><div class="fb">${esc(r.q || '—')}</div><div class="hint" style="margin-top:6px">${r.cxHandoff ? '원격 채널 글에 컴포즈 이모지(CX 이관 표시)가 있어 콜라비(CX) 인입으로 셉니다. 같은 매장 콜라비 상담은 아직 찾지 못했습니다' : `콜라비 상담 내역과 대조해 같은 매장 상담 이력이 없어 ${r.remote ? '원격팀' : '현장'} 자체 인입으로 셉니다`}${CS_LAST && r.date > CS_LAST ? ` — 다만 콜라비 상담 내역은 ${CS_LAST.slice(5)}까지만 입력되어 있어, 이후 입력되는 상담과 이어지면 다음 새로고침에 자동으로 콜라비 인입으로 바뀝니다` : ''}.</div></div>`;
-  h += slackCard(r);
-  if (r.toss) h += tossCard(r.toss, r);
-  if (r.remote) {
-    const R = r.remote, asWait = R.start && R.handoff ? Math.max(0, (R.start - R.handoff) / 60000) : null;
-    if (R.linked && r.src === 'cs') h += `<div class="attach">원격팀 기록이 같은 매장 · ${fmtMin(asWait)} 뒤 접수로 연결되었습니다</div>`;
-    h += `<div class="fc r"><div class="fh">원격 처리 ${R.linked ? src('oc') : src('cs') + ' <span class="muted">원격팀 기록 없음 · CS · 슬랙 기준</span>'}</div><div class="kv">
-      ${R.ackAt ? `<div><span>원격 담당 확인 (슬랙)</span><b>${dt(R.ackAt)} · ${fmtMin(remoteWait(r))}</b></div>` : ''}
-      ${R.linked ? `<div><span>원격팀 접수</span><b>${dt(R.start)}</b></div>${r.src === 'cs' ? `<div><span>상담 → 원격팀 접수</span><b>${fmtMin(asWait)}</b></div>` : ''}<div><span>접수 방식</span><b>${esc({ online: '온라인', offline: '오프라인' }[R.intake] || R.intake || '—')}</b></div>` : ''}
-      <div><span>원격 담당</span><b>${esc(R.owner || '—')}</b></div></div>
-      ${R.req && r.src === 'cs' ? `<div class="hint" style="margin-bottom:4px">요청: ${esc(R.req)}</div>` : ''}
-      <div class="fb">${R.action ? esc(R.action) : '<span class="muted">아직 등록된 처리 내용이 없어요</span>'}</div></div>`;
+  const steps = [], done = r.status === '완료';
+  const inName = r.src === 'oc' ? (r.cxHandoff ? 'CX 이관' : r.remote ? '원격팀 접수' : '현장 접수') : `${r.inflow || 'CX'} 인입`;
+  steps.push({ name: inName, color: 'var(--s1)', t: r.at, time: dt(r.at).slice(5), who: r.cx, text: r.q || '문의 내용 없음', sub: r.src === 'cs' ? r.a : '', subLabel: '안내 ' });
+  if (r.toss) {
+    const q = r.toss.slack || {};
+    steps.push({ name: '토스플레이스 확인', color: 'var(--purple)', t: r.toss.asked, time: r.toss.asked ? dt(r.toss.asked).slice(5) : '', text: q.answer || (r.toss.done ? '회신 받음' : '회신 기다리는 중'),
+      sub: r.toss.done ? `${dt(r.toss.done).slice(5)} 회신 · ${fmtMin(tossWait(r))}` : '', subLabel: '' });
   }
-  if (r.visit) h += `<div class="fc v"><div class="fh">현장 방문 ${src('oc')}</div><div class="kv"><div><span>방문일</span><b>${ymd(r.visit.date)}${r.visit.pending ? ' (예정)' : ''}</b></div>${r.visit.days != null ? `<div><span>원격 후 소요</span><b>${r.visit.days ? r.visit.days + '일' : '당일'}</b></div>` : ''}<div><span>구분</span><b>${esc(r.visit.kind || 'AS')}</b></div><div><span>방문 담당</span><b>${esc(r.visit.by || '—')}</b></div></div><div class="fb">${esc(r.visit.action || '—')}</div></div>`;
-  if (!r.remote && !r.visit && !r.toss && r.src === 'cs') h += `<div class="fc" style="border-left:4px solid var(--green)"><div class="fh">조치 ${src('cs')}</div><div class="fb">${r.status === '완료' ? 'CS 안내로 완료했습니다.' : '처리 중입니다.'}</div></div>`;
-  return h + '</div>';
+  if (r.remote) {
+    const R = r.remote, st = R.ackAt || R.start;
+    steps.push({ name: '원격 지원', color: 'var(--s2)', t: st, time: st ? dt(st).slice(5) : '착수 전', who: R.owner, text: R.action || (done ? '원격으로 처리 완료' : '처리 내용 등록 전') });
+  }
+  if (r.visit) {
+    const V = r.visit;
+    const endOfDay = new Date(V.date); endOfDay.setHours(23, 59);
+    // 방문은 날짜만 있으므로 그날 끝으로 순서를 잡고, 걸린 시간은 일 단위로 적습니다.
+    steps.push({ name: `현장 ${V.kind && V.kind !== '방문' ? V.kind : '방문'}`, color: 'var(--s3)', t: V.pending ? null : endOfDay, time: ymd(V.date).slice(5) + (V.pending ? ' 예정' : ''), who: V.by, text: V.action || '', gapLabel: V.days != null ? (V.days ? `${V.days}일` : '당일') : '' });
+  }
+  // 가운데 단계(토스플레이스 · 원격 · 현장)는 실제 일어난 순서로(시각 없는 예정 건은 뒤로)
+  const mid = steps.splice(1).sort((x, y) => (x.t ? x.t.getTime() : Infinity) - (y.t ? y.t.getTime() : Infinity));
+  steps.push(...mid);
+  const total = r.minutes != null ? r.minutes : r.doneAt ? (r.doneAt - r.at) / 60000 : null;
+  steps.push(done
+    ? { name: '처리 완료', color: 'var(--green)', t: r.doneAt, time: r.doneAt ? dt(r.doneAt).slice(5) : '완료', text: total != null ? `총 ${fmtMin(total)} 걸림` : (r.method === 'CS안내' ? 'CS 안내로 해결' : '') }
+    : { name: stage(r), color: 'var(--orange)', t: null, time: '진행 중', text: `접수 후 ${fmtMin((TODAY - r.at) / 60000)} 지남` });
+  const chips = [[r.method, '처리 방식'], [r.channel, '장비·채널'], [r.cat, '문의유형'], [total != null && done ? `총 ${fmtMin(total)}` : '', '소요']].filter(x => x[0] && x[0] !== '—');
+  return `<div class="flow"><div class="facts">${chips.map(([v, k]) => `<span>${k} <b>${esc(v)}</b></span>`).join('')}${r.slackOnly ? '<span class="tag warn">상담 내역 입력 전 · 슬랙 기준</span>' : ''}${r.src === 'oc' && CS_LAST && r.date > CS_LAST ? '<span class="tag warn">콜라비 입력 전일 수 있음</span>' : ''}${r.slack && r.slack.link ? `<a class="link internal" href="${esc(r.slack.link)}" target="_blank" rel="noopener">슬랙에서 보기 ↗</a>` : ''}</div>${flowHtml(steps)}</div>`;
 }
 function viewRecords() {
   const scoped = RECS.filter(r => inPeriod(r.at)), rows = recFilter('records', scoped, REC_TAGS), s = stats(rows), p = paged('records', rows, 30);
@@ -1469,10 +1505,19 @@ function procOf(r) {
 }
 const procTag = k => { const p = PROC_BY[k] || PROC_BY.inquiry; return `<span class="tag" style="background:${p.color}1f;color:${p.color};font-weight:700">${p.name}</span>`; };
 // 토스플레이스 확인 카드(상담에 붙은 것 · 상담 없이 슬랙에만 있는 것 공통)
+function tossOnlyFlow(t) {
+  const q = t.slack || {};
+  return `<div class="flow">${flowHtml([{ name: '토스플레이스 문의', color: 'var(--purple)', t: t.asked, time: t.asked ? dt(t.asked).slice(5) : '', text: q.question || '' },
+    t.done ? { name: '회신', color: 'var(--green)', t: t.done, time: dt(t.done).slice(5), text: q.answer || '회신 받음' } : { name: '회신 대기', color: 'var(--orange)', t: null, time: '진행 중', text: '' }])}</div>`;
+}
 function tossCard(t, r) {
   const wait = t.done && t.asked ? (t.done - t.asked) / 60000 : null, q = t.slack || {};
   return `<div class="fc t"><div class="fh">토스플레이스 확인 ${q.question !== undefined ? `<span class="src-tag src-cs">슬랙 · ${esc(q.channel || '고객센터-플레이스')}</span>` : src('cs')}</div><div class="kv"><div><span>문의 시각</span><b>${t.asked ? dt(t.asked) : '—'}</b></div><div><span>회신</span><b>${t.done ? dt(t.done) + (wait != null ? ' · ' + fmtMin(wait) : '') : '확인 기다리는 중'}</b></div></div>
     ${q.question ? `<div class="hint" style="margin-bottom:4px">문의: ${esc(q.question)}</div>` : ''}${q.answer ? `<div class="fb">${esc(q.answer)}</div>` : ''}</div>`;
+}
+function visitOnlyFlow(v) {
+  return `<div class="flow">${flowHtml([{ name: `현장 ${v.kind} 요청`, color: 'var(--s1)', t: v.at, time: dt(v.at).slice(5), text: '' },
+    { name: v.pending ? '방문 예정' : '방문 완료', color: v.pending ? 'var(--orange)' : 'var(--s3)', t: null, time: v.date.slice(5), who: v.by, text: v.equip || '' }])}</div>`;
 }
 function visitOnlyCard(v) {
   return `<div class="flow"><div class="fc v"><div class="fh">현장 방문 ${src('oc')}</div><div class="kv"><div><span>방문일</span><b>${esc(v.date)}${v.pending ? ' (예정)' : ''}</b></div><div><span>구분</span><b>${esc(v.kind)}</b></div><div><span>방문 담당</span><b>${esc(v.by || '—')}</b></div></div><div class="fb">${esc(v.equip || '—')}</div></div></div>`;
@@ -1490,7 +1535,7 @@ function viewProcess() {
   h += `<div class="proc-tiles">${PROC.map(pc => { const n = all.filter(x => x.proc === pc.name).length; return `<button class="proc-tile ${cur === pc.name ? 'on' : ''}" data-proc="${pc.name}" style="--c:${pc.color}"><span>${pc.name}</span><b>${num(n)}</b></button>`; }).join('')}</div>`;
   h += `<div class="card"><div class="card-head"><h3>처리 내역</h3><span class="hint">${perLabel()} · 최신순 · 누르면 아래로 펼쳐짐</span></div>${filterBar('process', all, tags, rows.length, { closeAll: true })}
     <div class="tbl-scroll"><table><thead><tr><th>처리일시</th><th>처리 구분</th><th>매장</th><th>내용</th><th>장비·채널</th><th>담당</th><th>상태</th></tr></thead><tbody>
-    ${p.rows.map(x => xrow(x.key, `<td style="white-space:nowrap">${dt(x.at).slice(5)}${caret(x.key)}</td><td>${procTag(PROC.find(pc => pc.name === x.proc).key)}</td><td style="white-space:nowrap"><b>${esc(x.store)}</b></td><td>${esc(String(x.text).slice(0, 80) || '—')}</td><td>${esc(x.channel)}</td><td style="white-space:nowrap">${esc(x.owner || '—')}</td><td>${statusBadge(x.status)}</td>`, 7, () => x.rec ? recDetail(x.rec) : x.tossOnly ? tossCard(x.tossOnly) : visitOnlyCard(x.visit))).join('') || `<tr><td colspan="7">${empty('조건에 맞는 처리 내역이 없습니다.')}</td></tr>`}
+    ${p.rows.map(x => xrow(x.key, `<td style="white-space:nowrap">${dt(x.at).slice(5)}${caret(x.key)}</td><td>${procTag(PROC.find(pc => pc.name === x.proc).key)}</td><td style="white-space:nowrap"><b>${esc(x.store)}</b></td><td>${esc(String(x.text).slice(0, 80) || '—')}</td><td>${esc(x.channel)}</td><td style="white-space:nowrap">${esc(x.owner || '—')}</td><td>${statusBadge(x.status)}</td>`, 7, () => x.rec ? recDetail(x.rec) : x.tossOnly ? tossOnlyFlow(x.tossOnly) : visitOnlyFlow(x.visit))).join('') || `<tr><td colspan="7">${empty('조건에 맞는 처리 내역이 없습니다.')}</td></tr>`}
     </tbody></table></div>${pager('process', p)}</div>`;
   return h;
 }
@@ -1787,10 +1832,10 @@ function render() {
   document.querySelectorAll('.view-tab.parent').forEach(b => b.classList.toggle('in', b.dataset.v === 'records' ? CONSULT_VIEWS.includes(view) : ['principles', 'incident', 'happycall', 'precheck'].includes(view)));
   const t = TITLES[view];
   document.title = `${t[0]} · 컴포즈 통합 대시보드`;
-  document.getElementById('pgSub').innerHTML = `<b>${t[0]}</b> · ${t[1]}${GUIDE_VIEWS.includes(view) || ['updates', 'precheck'].includes(view) ? '' : ' · ' + (view === 'report' ? ymLabel(month) : CONSULT_VIEWS.includes(view) ? perLabel() : ['equip', 'happy'].includes(view) ? '전체 기간' : scopes()[scope])}`;
-  document.getElementById('ctlHost').innerHTML = CONSULT_VIEWS.includes(view) ? perControls() : view === 'report'
+  document.getElementById('pgSub').innerHTML = `<b>${t[0]}</b> · ${t[1]}${GUIDE_VIEWS.includes(view) || ['updates', 'precheck'].includes(view) ? '' : ' · ' + (view === 'report' ? ymLabel(month) : CONSULT_VIEWS.includes(view) || view === 'overview' ? perLabel() : ['equip', 'happy'].includes(view) ? '전체 기간' : scopes()[scope])}`;
+  document.getElementById('ctlHost').innerHTML = CONSULT_VIEWS.includes(view) || view === 'overview' ? perControls() : view === 'report'
     ? `<select id="monthSel">${months().map(m => `<option value="${m}" ${m === month ? 'selected' : ''}>${ymLabel(m)}</option>`).join('')}</select><button class="btn" id="printBtn">🖨 인쇄 · PDF</button>`
-    : ['overview', 'stores'].includes(view) ? `<div class="seg" id="scopeSeg">${Object.entries(scopes()).map(([k, l]) => `<button data-s="${k}" class="${scope === k ? 'on' : ''}">${l}</button>`).join('')}</div>` : '';
+    : view === 'stores' ? `<div class="seg" id="scopeSeg">${Object.entries(scopes()).map(([k, l]) => `<button data-s="${k}" class="${scope === k ? 'on' : ''}">${l}</button>`).join('')}</div>` : '';
   const errs = (RAW.errors || []).length ? `<div class="notice danger"><span class="k">확인 필요</span><span class="t">${RAW.errors.map(esc).join('<br>')}</span></div>` : '';
   if (GUIDE_VIEWS.includes(view)) { document.getElementById('viewHost').innerHTML = viewGuide(); afterGuide(); return; }
   if (view === 'precheck') { document.getElementById('viewHost').innerHTML = viewPrecheck(); loadThumbs(); return; }
@@ -1826,7 +1871,7 @@ document.getElementById('modeSeg').addEventListener('click', e => { const b = e.
 document.getElementById('ctlHost').addEventListener('click', e => { const b = e.target.closest('[data-s]'); if (b) { scope = b.dataset.s; Object.keys(PG).forEach(k => { PG[k] = 1; }); render(); } if (e.target.closest('#printBtn')) window.print(); });
 document.getElementById('ctlHost').addEventListener('change', e => { if (e.target.id === 'monthSel') { month = e.target.value; render(); } });
 // 상담 내역 기간: 방식 바꾸기 · 하루/한 주 앞뒤로 · 오늘(이번 주) · 날짜 · 월 · 기간 고르기
-const perChanged = () => { CONSULT_VIEWS.concat(['issue']).forEach(k => { PG[k] = 1; }); render(); };
+const perChanged = () => { CONSULT_VIEWS.concat(['issue', 'overview']).forEach(k => { PG[k] = 1; }); render(); };
 document.getElementById('ctlHost').addEventListener('click', e => {
   const m = e.target.closest('[data-pm]'); if (m) { PER.mode = m.dataset.pm; perChanged(); return; }
   const st = e.target.closest('[data-pstep]'); if (st) { const n = +st.dataset.pstep; if (PER.mode === 'day') PER.day = ymd(addDay(P(PER.day), n)); else PER.week = ymd(addDay(P(PER.week), 7 * n)); perChanged(); return; }
@@ -1842,6 +1887,7 @@ host.addEventListener('click', e => {
   if (e.target.closest('[data-closeall]')) { OPEN.clear(); render(); return; }
   const rs = e.target.closest('[data-freset]'); if (rs) { const k = rs.closest('[data-fk]').dataset.fk; F[k] = { store: '', q: '', tags: {} }; PG[k] = 1; render(); return; }
   const ht = e.target.closest('[data-hct]'); if (ht) { hcType = ht.dataset.hct; render(); return; }
+  const tg = e.target.closest('[data-toggle-key]'); if (tg) { e.preventDefault(); const k = tg.dataset.toggleKey; OPEN.has(k) ? OPEN.delete(k) : OPEN.add(k); render(); return; }
   if (e.target.closest('[data-man-reload]')) { MAN = null; MAN_ERR = ''; render(); return; }
   const cb = e.target.closest('[data-cand]'); if (cb) { if (!CAND_BUSY) candAction(cb.dataset.cand, cb.dataset.as); return; }
   // 장비 고치기
