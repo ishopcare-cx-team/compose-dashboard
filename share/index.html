@@ -1960,6 +1960,7 @@ function normalizeWords(o) {
   return o;
 }
 function showData(raw) {
+  clearInterval(LOAD_TICK);
   normalizeWords(raw);
   buildModel(raw);
   document.getElementById('dataBadge').textContent = raw.demo ? '가상 데이터 미리보기' : `실데이터 · ${raw.now.slice(5)} 기준`;
@@ -1977,11 +1978,12 @@ function load(fresh, silent) {
     return;
   }
   if (!IS_GAS) { showData(demoRaw()); return; }
-  if (!silent) document.getElementById('viewHost').innerHTML = '<div class="loading">CS 리포트와 원격팀 기록을 불러오는 중입니다…</div>';
+  if (!silent) { document.getElementById('viewHost').innerHTML = '<div class="loading">CS 리포트와 원격팀 기록을 불러오는 중입니다…</div>'; const t0 = Date.now(); clearInterval(LOAD_TICK); LOAD_TICK = setInterval(() => { const el = host.querySelector('.loading'); if (!el || RAW) { clearInterval(LOAD_TICK); return; } const sec = Math.round((Date.now() - t0) / 1000); if (sec >= 15) el.innerHTML = `서버에서 새로 계산하는 중입니다… ${sec}초<br><span class="hint">미리 계산해 둔 데이터가 없어 시트 · 슬랙을 다시 읽고 있어요. 보통 1분 안에 끝나요.</span>`; }, 1000); }
   // 자동 새로고침은 화면을 비우지 않고, 실패해도 지금 화면을 그대로 둡니다.
   google.script.run.withSuccessHandler(text => { try { showData(JSON.parse(text)); } catch (e) { if (!silent) showError(e); } }).withFailureHandler(e => { if (!silent) showError(e); }).getIntegratedData(!!fresh, !VIEWER.internal);
 }
-function showError(e) { document.getElementById('pgTitle').textContent = '불러오지 못했습니다'; document.getElementById('viewHost').innerHTML = `<div class="notice danger"><span class="k">오류</span><span class="t">${esc(e && e.message || e)}</span></div>`; }
+function showError(e) { clearInterval(LOAD_TICK); const at = String(e && e.stack || '').split(String.fromCharCode(10)).slice(1, 3).map(x => x.trim()).join(' · '); document.getElementById('pgTitle').textContent = '불러오지 못했습니다'; document.getElementById('viewHost').innerHTML = `<div class="notice danger"><span class="k">오류</span><span class="t">${esc(e && e.message || e)}${at ? `<br><span class="hint">${esc(at)}</span>` : ''}<br><button class="btn sm" style="margin-top:8px" onclick="load(true)">다시 불러오기</button></span></div>`; }
+let LOAD_TICK = 0;
 
 const host = document.getElementById('viewHost');
 document.querySelectorAll('.view-tab').forEach(b => b.addEventListener('click', () => { document.body.classList.remove('side-open'); syncSide(); view = b.dataset.v; render(); window.scrollTo(0, 0); }));
@@ -2212,7 +2214,7 @@ try { const t = localStorage.getItem('ctd-theme'); if (t) document.documentEleme
     if (INTERNAL_VIEWS.includes(view)) view = 'overview';
   }
   // 서버가 페이지에 데이터를 실어 보냈으면(미리 계산된 캐시) 추가 요청 없이 바로 그리고, 없으면 불러옵니다.
-  if (typeof DATA_SLOT === 'object' && DATA_SLOT) showData(DATA_SLOT); else load(false);
+  if (typeof DATA_SLOT === 'object' && DATA_SLOT) { try { showData(DATA_SLOT); } catch (e) { console.error(e); showError(e); } } else load(false);
   if (IS_GAS || STATIC) setInterval(() => { if (!document.hidden && !EQ_EDIT && !GEDIT && !MAN_EDIT && !host.querySelector('.upd-form')) load(false, true); }, AUTO_REFRESH_MINUTES * 60000);
   if (hs.includes('share') && document.querySelector('#modeSeg [data-m="share"]')) document.querySelector('#modeSeg [data-m="share"]').click();
   if (hs.includes('open') && RAW) { const r = RECS.find(x => x.remote && x.remote.linked && x.visit && !x.visit.pending); if (r) { OPEN.add(`rec:${r.id}`); flt('records').q = r.id; scope = r.at >= addDay(TODAY, -30) ? '30d' : 'm' + r.date.slice(0, 7); if (!scopes()[scope]) scope = '30d'; render(); } } }
