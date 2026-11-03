@@ -1730,7 +1730,7 @@ function viewGuide() {
           <span class="geb-label" style="margin-left:10px">옮기기</span>${B('up', '↑ 위로', '커서가 있는 문단 · 블록 · 카드를 위로')}${B('down', '↓ 아래로', '아래로')}${B('del', '지우기', '커서가 있는 문단 · 블록 · 카드 지우기')}</div>
         <div class="g-emojis" ${GEMOJI ? '' : 'hidden'}>${'✅ ✔️ ❌ ⚠️ ❗ ❓ 📌 💡 🔥 ⭐ 👉 🙏 😊 📞 💳 🖨️ 📱 🧾 ⏰ 🛠️ ☕ 🚚 🏪 🔔 🔒'.split(' ').map(x => `<button data-gemoji="${x}">${x}</button>`).join('')}</div>
         <div class="hint">글자를 바로 눌러 고치세요 · 카드와 문장 블록은 오른쪽 위 <b>⠿</b>를 끌어 순서를 바꾸거나 ↑ ↓ ✕ 로 옮기고 지울 수 있어요 · 위 '옮기기'는 커서가 있는 문단을 움직여요</div>
-        <input type="file" id="gImgInput" accept="image/*" hidden></div>`;
+        <input type="file" id="gImgInput" accept="${'image/' + '*'}" hidden></div>`;
   const err = GERR ? `<div class="notice danger"><span class="k">저장 실패</span><span class="t">${esc(GERR)}</span></div>` : '';
   return `${bar}${err}<div class="guide ${editing ? 'g-editing' : ''}">${editing && GDRAFT != null ? GDRAFT : srcEl.innerHTML}</div>`;
 }
@@ -1978,7 +1978,7 @@ function load(fresh, silent) {
     return;
   }
   if (!IS_GAS) { showData(demoRaw()); return; }
-  if (!silent) { document.getElementById('viewHost').innerHTML = '<div class="loading">CS 리포트와 원격팀 기록을 불러오는 중입니다…</div>'; const t0 = Date.now(); clearInterval(LOAD_TICK); LOAD_TICK = setInterval(() => { const el = host.querySelector('.loading'); if (!el || RAW) { clearInterval(LOAD_TICK); return; } const sec = Math.round((Date.now() - t0) / 1000); if (sec >= 15) el.innerHTML = `서버에서 새로 계산하는 중입니다… ${sec}초<br><span class="hint">미리 계산해 둔 데이터가 없어 시트 · 슬랙을 다시 읽고 있어요. 보통 1분 안에 끝나요.</span>`; }, 1000); }
+  if (!silent) { document.getElementById('viewHost').innerHTML = '<div class="loading">CS 리포트와 원격팀 기록을 불러오는 중입니다…</div>'; const t0 = Date.now(); clearInterval(LOAD_TICK); LOAD_TICK = setInterval(() => { const el = host.querySelector('.loading'); if (!el || RAW) { clearInterval(LOAD_TICK); return; } const sec = Math.round((Date.now() - t0) / 1000); if (sec >= 90) el.innerHTML = `서버 응답이 ${sec}초째 없습니다.<br><span class="hint">브라우저에 구글 계정이 여러 개 로그인되어 있으면 데이터 요청이 다른 계정으로 가서 멈출 수 있어요. 시크릿 창에서 회사 계정 하나로만 로그인해 열어 보세요.</span><br><button class="btn sm" style="margin-top:8px" onclick="load(true)">다시 불러오기</button>`; else if (sec >= 15) el.innerHTML = `서버에서 새로 계산하는 중입니다… ${sec}초<br><span class="hint">미리 계산해 둔 데이터가 없어 시트 · 슬랙을 다시 읽고 있어요. 보통 1분 안에 끝나요.</span>`; }, 1000); }
   // 자동 새로고침은 화면을 비우지 않고, 실패해도 지금 화면을 그대로 둡니다.
   google.script.run.withSuccessHandler(text => { try { showData(JSON.parse(text)); } catch (e) { if (!silent) showError(e); } }).withFailureHandler(e => { if (!silent) showError(e); }).getIntegratedData(!!fresh, !VIEWER.internal);
 }
