@@ -370,6 +370,7 @@
   .per-more{display:flex; align-items:center; gap:6px; flex-wrap:wrap}
   .per-more input[type=date]{font-family:inherit; font-size:13.5px; padding:7px 10px; border:1px solid var(--line); border-radius:10px; background:var(--canvas); color:var(--ink)}
   .per-label{font-size:13.5px; font-weight:700; padding:0 6px; white-space:nowrap}
+  .man-card .att-grid{margin-top:6px} .man-body p{margin:4px 0} .man-body ol,.man-body ul{padding-left:20px; margin:4px 0} .man-body li{margin:2px 0}
   /* 처리 내역: 처리 구분 칸(원격팀 대시보드 색) */
   .proc-tiles{display:grid; grid-template-columns:repeat(9,minmax(0,1fr)); gap:10px; margin-bottom:20px}
   @media (max-width:1180px){ .proc-tiles{grid-template-columns:repeat(4,minmax(0,1fr))} }
@@ -453,6 +454,7 @@
       <button class="view-tab sub" data-v="principles">응대 원칙</button>
       <button class="view-tab sub" data-v="incident">장애 대응</button>
       <button class="view-tab sub" data-v="happycall">해피콜 스크립트</button>
+      <button class="view-tab sub" data-v="precheck">사전체크 매뉴얼</button>
     </div>
     <button class="view-tab" data-v="posmanual">포스 매뉴얼</button>
     <button class="view-tab" data-v="updates">업데이트</button>
@@ -1038,11 +1040,12 @@ const TITLES = {
   equip: ['장비 조회', '원격팀 장비 이력 + CS 사전체크'], stores: ['지점별', '매장 한 곳의 상담 · 원격 · 장비 · 설정'],  report: ['월간 보고서', '토스플레이스 보고용'],
   principles: ['응대 원칙', '상담 가이드 · CX 응대 기준'], incident: ['장애 대응', '상담 가이드 · 알림 문구별 조치'],
   happycall: ['해피콜 스크립트', '상담 가이드 · 유형별 스크립트와 부재 문자'], posmanual: ['포스 매뉴얼', '토스플레이스 × 컴포즈 간편 매뉴얼(v5)'],
+  precheck: ['사전체크 매뉴얼', '상담 가이드 · 설치 전 CX 확인 단계(설치 리스트 시트 원본)'],
   updates: ['업데이트', '슬랙에 흩어진 공지 · 변경 사항을 여기서 바로 쓰고 고칩니다']
 };
 // 공유용 보기에서 숨기는 화면(메뉴의 '내부용' 묶음)
 const GUIDE_VIEWS = ['principles', 'incident', 'happycall', 'posmanual'];
-const INTERNAL_VIEWS = ['report', 'updates', 'cands'].concat(GUIDE_VIEWS);
+const INTERNAL_VIEWS = ['report', 'updates', 'cands', 'precheck'].concat(GUIDE_VIEWS);
 let hcType = 'new';
 
 /* ================================================================ 공통 조각 */
@@ -1697,8 +1700,9 @@ function fetchAtt(id) {
   if (ATT[id] && (ATT[id].url || ATT[id].loading)) return Promise.resolve(ATT[id]);
   if (!IS_GAS) return Promise.resolve(ATT[id] || { err: '미리보기에서는 새로고침 전에 붙인 첨부만 볼 수 있습니다.' });
   ATT[id] = { loading: true };
-  return new Promise(res => google.script.run.withSuccessHandler(text => { const d = JSON.parse(text); ATT[id] = { url: `data:${d.type};base64,${d.data}`, type: d.type, name: d.name }; res(ATT[id]); })
-    .withFailureHandler(e => { ATT[id] = { err: (e && e.message) || String(e) }; res(ATT[id]); }).getUpdateAttachment(id));
+  const man = id.indexOf('man:') === 0;
+  return new Promise(res => { const run = google.script.run.withSuccessHandler(text => { const d = JSON.parse(text); ATT[id] = { url: `data:${d.type};base64,${d.data}`, type: d.type, name: d.name }; res(ATT[id]); })
+    .withFailureHandler(e => { ATT[id] = { err: (e && e.message) || String(e) }; res(ATT[id]); }); if (man) run.getManualPhoto(id.slice(4)); else run.getUpdateAttachment(id); });
 }
 // 화면에 보이는 미리보기 이미지만 받아서 채웁니다(다시 그리지 않고 그 자리에 넣음).
 function loadThumbs() {
@@ -1735,6 +1739,44 @@ function viewUpdates() {
   return h;
 }
 
+/* 사전체크 매뉴얼(내부용): 설치 리스트 시트 '사전체크 매뉴얼' 탭을 단계별로 보여 줍니다. 사진은 눌러서 크게 봅니다. */
+let MAN = null, MAN_ERR = '', MAN_URL = '';
+function manDemo() {
+  return [{ no: '1', title: '토플파 TID 등록', body: '1. 스마트로 포털에서 매장 단말기 TID를 조회해요\n2. 키오스크 번호(K, K2…)에 맞춰 토플파에 등록해요\n> 등록 후 번호와 TID를 한 번 더 대조해요', photos: [] },
+    { no: '2', title: '플러그인 ON', body: '- 컴포즈앱 플러그인 ON\n- 컴포즈 사후취소 플러그인 ON\n참고: https:' + '//example.com/guide', photos: [] }];
+}
+// 본문 표기: '1.' 번호 목록 · '-' 목록 · '>' 주의 상자 · 링크
+function manBody(text) {
+  let h = '', list = '';
+  const link = t => esc(t).replace(/(https?:&#x2F;&#x2F;|https?:\/\/)[^\s)<]+/g, m => `<a class="link" href="${m}" target="_blank" rel="noopener">링크 열기 ↗</a>`);
+  const close = () => { if (list) { h += `</${list}>`; list = ''; } };
+  String(text || '').split(/\r?\n/).forEach(l => {
+    const mo = l.match(/^\s*\d+[.)]\s+(.*)$/), mu = l.match(/^\s*[-•]\s+(.*)$/), mn = l.match(/^\s*>\s?(.*)$/);
+    if (mo || mu) { const t = mo ? 'ol' : 'ul'; if (list !== t) { close(); h += `<${t}>`; list = t; } h += `<li>${link((mo || mu)[1])}</li>`; return; }
+    close();
+    if (mn) h += `<div class="g-warn" style="margin:6px 0">${link(mn[1])}</div>`; else if (l.trim()) h += `<p>${link(l)}</p>`;
+  });
+  close();
+  return h;
+}
+function viewPrecheck() {
+  if (!VIEWER.internal) return '<div class="notice"><span class="k">내부용</span><span class="t">사전체크 매뉴얼은 회사 계정 화면에서만 볼 수 있습니다.</span></div>';
+  if (MAN === null) {
+    if (!IS_GAS) MAN = manDemo();
+    else {
+      if (!MAN_ERR) google.script.run.withSuccessHandler(t => { const d = JSON.parse(t); MAN = d.items; MAN_URL = d.sheetUrl; if (view === 'precheck') render(); })
+        .withFailureHandler(e => { MAN_ERR = (e && e.message) || String(e); if (view === 'precheck') render(); }).getPrecheckManual();
+      return MAN_ERR ? `<div class="notice danger"><span class="k">오류</span><span class="t">${esc(MAN_ERR)}</span></div>` : '<div class="loading">사전체크 매뉴얼을 불러오는 중입니다…</div>';
+    }
+  }
+  const words = flt('precheck').q.trim().split(/\s+/).filter(Boolean).map(squash);
+  const rows = MAN.filter(m => !words.length || words.every(w => squash(`${m.title} ${m.body}`).includes(w)));
+  return `<div class="fbar" data-fk="precheck"><input type="search" data-f="q" placeholder="🔍 매뉴얼 내용 키워드" value="${esc(flt('precheck').q)}" aria-label="매뉴얼 검색" style="flex:1 1 260px">${flt('precheck').q ? '<button class="btn sm" data-freset>조건 지우기</button>' : ''}<span class="fbar-end"><span class="hint">${rows.length}단계</span>${MAN_URL ? `<a class="btn sm" href="${esc(MAN_URL)}" target="_blank" rel="noopener">시트에서 고치기 ↗</a>` : ''}<button class="btn sm" data-man-reload>새로 불러오기</button></span></div>
+    <div class="guide"><div class="g-card tint"><div class="g-head"><h2 class="g-h2">사전체크 매뉴얼</h2></div><p class="g-lead">설치 전에 CX에서 확인할 단계예요. 원본은 설치 리스트 시트의 '사전체크 매뉴얼' 탭이고, CX 통합 관리 화면에서 고친 내용이 그대로 보여요. 사진을 누르면 크게 볼 수 있어요.</p></div>
+    ${rows.map(m => `<div class="g-card man-card" id="man-${esc(m.no)}"><div class="g-head"><h3 class="g-h3"><span class="g-num">${esc(m.no)}</span> ${esc(m.title)}</h3></div><div class="man-body">${manBody(m.body)}</div>
+      ${(m.photos || []).length ? `<div class="att-grid">${m.photos.map((id, i) => `<button class="att-thumb" data-att-open="man:${esc(id)}" title="크게 보기"><img data-att-img="man:${esc(id)}" alt="매뉴얼 사진 ${i + 1}" ${ATT['man:' + id] && ATT['man:' + id].url ? `src="${ATT['man:' + id].url}"` : ''}><span>사진 ${i + 1}</span></button>`).join('')}</div>` : ''}</div>`).join('') || empty(MAN.length ? '조건에 맞는 단계가 없습니다.' : '시트에 아직 매뉴얼 단계가 없습니다.')}</div>`;
+}
+
 /* ================================================================ 그리기 · 이벤트 */
 function render() {
   if (!RAW) return;
@@ -1742,15 +1784,16 @@ function render() {
   if (!scopes()[scope]) scope = '30d';
   if (!month || !months().includes(month)) month = months()[RECS.some(r => r.date.slice(0, 7) === ymd(TODAY).slice(0, 7)) && TODAY.getDate() > 7 ? 0 : 1] || months()[0] || ymd(TODAY).slice(0, 7);
   document.querySelectorAll('.view-tab').forEach(b => b.classList.toggle('active', b.dataset.v === view && !b.classList.contains('parent')));
-  document.querySelectorAll('.view-tab.parent').forEach(b => b.classList.toggle('in', b.dataset.v === 'records' ? CONSULT_VIEWS.includes(view) : ['principles', 'incident', 'happycall'].includes(view)));
+  document.querySelectorAll('.view-tab.parent').forEach(b => b.classList.toggle('in', b.dataset.v === 'records' ? CONSULT_VIEWS.includes(view) : ['principles', 'incident', 'happycall', 'precheck'].includes(view)));
   const t = TITLES[view];
   document.title = `${t[0]} · 컴포즈 통합 대시보드`;
-  document.getElementById('pgSub').innerHTML = `<b>${t[0]}</b> · ${t[1]}${GUIDE_VIEWS.includes(view) || view === 'updates' ? '' : ' · ' + (view === 'report' ? ymLabel(month) : CONSULT_VIEWS.includes(view) ? perLabel() : ['equip', 'happy'].includes(view) ? '전체 기간' : scopes()[scope])}`;
+  document.getElementById('pgSub').innerHTML = `<b>${t[0]}</b> · ${t[1]}${GUIDE_VIEWS.includes(view) || ['updates', 'precheck'].includes(view) ? '' : ' · ' + (view === 'report' ? ymLabel(month) : CONSULT_VIEWS.includes(view) ? perLabel() : ['equip', 'happy'].includes(view) ? '전체 기간' : scopes()[scope])}`;
   document.getElementById('ctlHost').innerHTML = CONSULT_VIEWS.includes(view) ? perControls() : view === 'report'
     ? `<select id="monthSel">${months().map(m => `<option value="${m}" ${m === month ? 'selected' : ''}>${ymLabel(m)}</option>`).join('')}</select><button class="btn" id="printBtn">🖨 인쇄 · PDF</button>`
     : ['overview', 'stores'].includes(view) ? `<div class="seg" id="scopeSeg">${Object.entries(scopes()).map(([k, l]) => `<button data-s="${k}" class="${scope === k ? 'on' : ''}">${l}</button>`).join('')}</div>` : '';
   const errs = (RAW.errors || []).length ? `<div class="notice danger"><span class="k">확인 필요</span><span class="t">${RAW.errors.map(esc).join('<br>')}</span></div>` : '';
   if (GUIDE_VIEWS.includes(view)) { document.getElementById('viewHost').innerHTML = viewGuide(); afterGuide(); return; }
+  if (view === 'precheck') { document.getElementById('viewHost').innerHTML = viewPrecheck(); loadThumbs(); return; }
   if (view === 'updates') { captureDraft(); document.getElementById('viewHost').innerHTML = viewUpdates(); loadThumbs(); return; }
   document.getElementById('viewHost').innerHTML = errs + { overview: viewOverview, records: viewRecords, stores: viewStores, equip: viewEquip, happy: viewHappy, process: viewProcess, issues: viewIssues, voc: viewVoc, cands: viewCands, report: viewReport }[view]();
 }
@@ -1799,6 +1842,7 @@ host.addEventListener('click', e => {
   if (e.target.closest('[data-closeall]')) { OPEN.clear(); render(); return; }
   const rs = e.target.closest('[data-freset]'); if (rs) { const k = rs.closest('[data-fk]').dataset.fk; F[k] = { store: '', q: '', tags: {} }; PG[k] = 1; render(); return; }
   const ht = e.target.closest('[data-hct]'); if (ht) { hcType = ht.dataset.hct; render(); return; }
+  if (e.target.closest('[data-man-reload]')) { MAN = null; MAN_ERR = ''; render(); return; }
   const cb = e.target.closest('[data-cand]'); if (cb) { if (!CAND_BUSY) candAction(cb.dataset.cand, cb.dataset.as); return; }
   // 장비 고치기
   const ee = e.target.closest('[data-eq-edit]'); if (ee) { EQ_EDIT = ee.dataset.eqEdit; EQ_ERR = ''; render(); return; }
