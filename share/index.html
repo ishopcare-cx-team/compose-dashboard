@@ -364,6 +364,8 @@
   .guide [hidden]{display:none !important}
   .g-hidden{display:none !important}
   .side{overflow-x:hidden}
+  /* 공유용에서는 화면 안내 문구(공유용 표시 · 탭 설명)를 숨깁니다. 오류 알림과 상담 상세 안의 표시는 그대로 둡니다. */
+  body.share #viewHost > .notice:not(.danger), body.share .share-only{display:none !important}
   /* 상담 내역 기간 조회 */
   .per-more{display:flex; align-items:center; gap:6px; flex-wrap:wrap}
   .per-more input[type=date]{font-family:inherit; font-size:13.5px; padding:7px 10px; border:1px solid var(--line); border-radius:10px; background:var(--canvas); color:var(--ink)}
