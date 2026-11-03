@@ -643,7 +643,8 @@ const INFLOWS = ['콜라비', '원격팀', '법인폰', '현장'];
 // 슬랙 AI 분석의 예전 장비·채널 값 → 지금 이름(CS 리포트 ISSUE.CHANNEL_RENAMES와 같음)
 const CH_RENAMES = { '포스': '포스(PC,포스기)', 'pos': '포스(PC,포스기)', 'POS': '포스(PC,포스기)', '주방프린터': '프린터' };
 // 연결 규칙: 원격 AS는 상담 후 LINK_AS_DAYS일 안, 현장 방문은 LINK_VISIT_DAYS일 안의 같은 매장 상담에 붙입니다.
-const LINK = { AS_DAYS: 3, AS_EARLY_MIN: 30, VISIT_DAYS: 10 };
+// 원격 기록이 상담보다 먼저 적힌 경우(상담 내역 적재가 늦음)도 AS_EARLY_MIN분까지는 같은 건으로 봅니다.
+const LINK = { AS_DAYS: 3, AS_EARLY_MIN: 720, VISIT_DAYS: 10 };
 
 let RAW = null, TODAY = new Date(), RECS = [], ISSUES = [], VOC = [], HAPPY = [], HCQ = HC_DEFAULT, STORES = [], SM = {}, CHECK_ITEMS = [], LINKSTAT = {}, VISIT_ONLY = [];
 
@@ -720,13 +721,13 @@ function buildModel(raw) {
   }).filter(Boolean);
   const byStore = {};
   RECS.forEach(r => { (byStore[r.skey] = byStore[r.skey] || []).push(r); });
-  const nearest = (k, at, earlyMin, days, ok, prefer) => {
+  const nearest = (k, at, earlyMin, days, ok, prefer, penalty) => {
     let best = null, bestScore = Infinity;
     (byStore[k] || []).forEach(c => {
       const diff = (at - c.at) / 60000;
       if (diff < -earlyMin || diff > days * 1440 || !ok(c)) return;
-      // 가까운 시각이 먼저, 처리 방식이 맞는 상담은 하루만큼 가산
-      const score = Math.abs(diff) + (prefer(c) ? 0 : 1440);
+      // 가까운 시각이 먼저. 처리 방식이 다르면 하루만큼, 장비가 달라 보이면 반나절만큼 뒤로 미룹니다(장비 추정은 글자 기준이라 막지는 않음).
+      const score = Math.abs(diff) + (prefer(c) ? 0 : 1440) + (penalty ? penalty(c) : 0);
       if (score < bestScore) { bestScore = score; best = c; }
     });
     return best;
@@ -742,7 +743,7 @@ function buildModel(raw) {
   asRecs.forEach(a => {
     const k = skey(a.store || a.branch);
     const remote = { owner: a.emp, start: a.at, req: a.req, action: a.note, intake: a.intake, status: a.status, cat: a.cat || 'as', linked: true };
-    const c = nearest(k, a.at, LINK.AS_EARLY_MIN, LINK.AS_DAYS, x => x.src === 'cs' && !(x.remote && x.remote.linked) && sameDevice(x.channel, `${a.req} ${a.note}`), x => x.method === '원격지원' || x.method === '방문점검');
+    const c = nearest(k, a.at, LINK.AS_EARLY_MIN, LINK.AS_DAYS, x => x.src === 'cs' && !(x.remote && x.remote.linked), x => x.method === '원격지원' || x.method === '방문점검', x => sameDevice(x.channel, `${a.req} ${a.note}`) ? 0 : 720);
     if (c) { c.remote = Object.assign(remote, { handoff: c.at }); asLinked++; }
     else ocRec({ id: `원격-${a.date.slice(2).replace(/-/g, '.')}-${pad(orphans.length + 1)}`, inflow: '원격팀', store: a.store || a.branch, at: a.at, channel: guessChannel(`${a.req} ${a.note}`),
       q: a.req, a: '', method: '원격지원', status: a.status === 'done' ? '완료' : '처리중', remote: Object.assign(remote, { handoff: null }) });
@@ -771,7 +772,7 @@ function buildModel(raw) {
     if (v.kind !== 'AS') { VISIT_ONLY.push({ id: `${v.kind || '방문'}-${ymd(vd).slice(2).replace(/-/g, '.')}-${pad(VISIT_ONLY.length + 1)}`, at: vd, date: ymd(vd), store: st.name, skey: st.key, kind: v.kind || '기타', type, equip: v.equip, by: v.assignee, pending: v.status !== 'done' }); return; }
     visitAs++;
     const end = new Date(vd); end.setHours(23, 59);
-    const c = nearest(st.key, end, 0, LINK.VISIT_DAYS, x => !x.visit && sameDevice(x.channel, v.equip), x => x.method === '방문점검' || (x.remote && x.remote.linked));
+    const c = nearest(st.key, end, 0, LINK.VISIT_DAYS, x => !x.visit, x => x.method === '방문점검' || (x.remote && x.remote.linked), x => sameDevice(x.channel, v.equip) ? 0 : 720);
     const visit = { date: vd, by: v.assignee, action: v.equip, kind: type, pending: v.status !== 'done' };
     if (c) { ev.rec = c.id; visit.days = Math.max(0, Math.round((vd - startOfDay(c.remote && c.remote.start || c.at)) / 864e5)); c.visit = visit; visitLinked++; if (c.src === 'cs' && c.method !== '방문점검') c.method = '방문점검'; }
     else ev.rec = ocRec({ id: `방문-${ymd(vd).slice(2).replace(/-/g, '.')}-${pad(orphans.length + 1)}`, inflow: '현장', store: v.store, at: P(`${v.date} ${v.time || '00:00'}`) || vd, channel: guessChannel(v.equip),
@@ -1039,6 +1040,23 @@ function dailyChart(rows) {
   });
   return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="일자별 처리 건수">${g}</svg></div>`;
 }
+// 시간대별 상담 추이: 접수 시각(0~23시)별 건수
+function hourChart(rows) {
+  if (!rows.length) return '<div class="empty">기간 안에 상담이 없습니다.</div>';
+  const m = Array(24).fill(0); rows.forEach(r => { m[r.at.getHours()]++; });
+  const W = 760, H = 220, L = 30, R = 8, T = 18, B = 26, iw = W - L - R, ih = H - T - B;
+  const max = Math.max(4, ...m), step = Math.ceil(max / 4), top = step * 4, bw = iw / 24, gap = Math.max(2, bw * .22), peak = m.indexOf(Math.max(...m));
+  let g = '';
+  for (let i = 0; i <= 4; i++) { const y = T + ih - ih * i / 4; g += `<line class="gl" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text class="axis" x="${L - 6}" y="${y + 3.5}" text-anchor="end">${step * i}</text>`; }
+  m.forEach((v, i) => {
+    const h = ih * v / top, x = L + i * bw + gap / 2, w = bw - gap, y = T + ih - h, r = Math.min(4, w / 2, h);
+    const path = h > 0 ? `M${x},${T + ih}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${T + ih}Z` : '';
+    g += `<g data-tip="<b>${v}건</b><br>${i}시~${i + 1}시"><rect class="hit" x="${L + i * bw}" y="${T}" width="${bw}" height="${ih}"/>${path ? `<path class="bar" d="${path}"/>` : ''}</g>`;
+    if (i === peak && v) g += `<text class="lbl" x="${x + w / 2}" y="${y - 5}" text-anchor="middle">${v}</text>`;
+    if (i % 3 === 0) g += `<text class="axis" x="${x + w / 2}" y="${H - 8}" text-anchor="middle">${i}시</text>`;
+  });
+  return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="시간대별 상담 건수">${g}</svg></div>`;
+}
 function methodStack(s) {
   const t = s.mCs + s.mRemote + s.mVisit || 1, seg = (n, c, l) => n ? `<div style="flex:${n};background:var(${c})" data-tip="<b>${n}건</b> · ${l} ${(n / t * 100).toFixed(0)}%">${n / t > .09 ? (n / t * 100).toFixed(0) + '%' : ''}</div>` : '';
   return `<div class="stack">${seg(s.mCs, '--s1', 'CS안내')}${seg(s.mRemote, '--s2', '원격지원')}${seg(s.mVisit, '--s3', '방문점검')}</div>
@@ -1096,6 +1114,18 @@ function viewOverview() {
   const sq = skey(flt('overview').store), byStore = x => !sq || skey(x.store).includes(sq);
   const openIssues = ISSUES.filter(i => byStore(i) && !/^완료/.test(i.status)).length + VOC.filter(v => byStore(v) && !['완료', '보류'].includes(v.status)).length, d = s.total - p.total;
   let h = filterBar('overview', RECS.filter(inScope), tags, rows.length);
+  // 공유용(토스플레이스): 상담 건수 · 평균 해결 시간 · 시간대별 상담 추이 · 문의 유형 · 처리 흐름만 보여 줍니다.
+  if (mode === 'share') {
+    const types = countBy(rows.filter(r => r.src === 'cs'), r => r.cat).slice(0, 10);
+    h += `<div class="ov-tiles" style="--n:2">${tile('상담 건수', num(s.total), '건', `${scopes()[scope]} · 이전 기간 ${num(p.total)}건 (${d >= 0 ? '+' : '−'}${num(Math.abs(d))})`, { grand: true })}${tile('평균 해결 시간', fmtMin(s.avgMin), '', `이전 기간 ${fmtMin(p.avgMin)} · CS 완료 기준(방문 · 토스플레이스 확인 제외)`, { c: 'var(--s1)' })}</div>`;
+    h += `<div class="card"><div class="card-head"><h3>시간대별 상담 추이</h3><span class="hint">${scopes()[scope]} · 접수 시각 기준 · 합계 ${num(s.total)}건</span></div>${hourChart(rows)}</div>`;
+    h += `<div class="grid2 even grid-gap"><div class="card"><div class="card-head"><h3>문의 유형</h3><span class="hint">상위 10개</span></div>${types.length ? hbars(types, types[0][1]) : empty('없음')}</div>`
+      + `<div class="card"><div class="card-head"><h3>처리 흐름</h3></div>${methodStack(s)}<div class="flow-stats">
+        <div class="fstat"><span>상담 → 원격 착수</span><div><b>${fmtMin(s.avgWait)}</b><small>평균</small></div></div>
+        <div class="fstat"><span>원격 → 현장 방문</span><div><b>${s.avgVisitDays == null ? '—' : s.avgVisitDays.toFixed(1)}</b><small>일 평균</small></div></div>
+        <div class="fstat"><span>토스플레이스 회신 <small>(${num(s.toss)}건 · 대기 ${num(s.tossOpen)})</small></span><div><b>${fmtMin(s.avgToss)}</b><small>평균</small></div></div></div></div></div>`;
+    return h;
+  }
   h += `<div class="ov-tiles" style="--n:6">`
     + tile('전체 접수', num(s.total), '건', `CS ${num(s.cs)} · 원격 단독 ${num(s.oc)} · 이전 대비 ${d >= 0 ? '+' : '−'}${num(Math.abs(d))}`, { grand: true })
     + tile('평균 해결 시간', fmtMin(s.avgMin), '', `CS 완료 기준 · 방문·토플 제외`, { src: src('cs') })
