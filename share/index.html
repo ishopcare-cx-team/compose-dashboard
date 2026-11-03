@@ -388,6 +388,16 @@
   .parrow span{font-size:11px; font-weight:700; color:var(--accent-deep); white-space:nowrap} .parrow b{font-size:20px; line-height:1}
   @media (max-width:820px){ .pflow{flex-direction:column} .pstep{max-width:none} .parrow{flex-direction:row; flex-basis:auto; padding:4px 0} .parrow b{transform:rotate(90deg)} }
   .raw-text{font-size:12.5px; color:var(--gray); margin-top:4px} .raw-text summary{cursor:pointer; font-weight:700; color:var(--accent-deep)} .raw-text div{margin-top:4px; white-space:pre-wrap; overflow-wrap:anywhere}
+  .g-editbar{position:sticky; top:0; z-index:30; background:var(--canvas); border:1px solid var(--yellow); border-radius:14px; padding:10px 12px; margin-bottom:14px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:8px}
+  .geb-row{display:flex; flex-wrap:wrap; align-items:center; gap:6px} .geb-end{margin-left:auto; display:flex; gap:6px} .geb-label{font-size:11.5px; font-weight:800; color:var(--gray2); letter-spacing:.04em; margin-right:2px}
+  .geb-hl{background:#fff1a8; color:#1d1d1f; padding:0 4px; border-radius:3px}
+  .g-emojis{display:flex; flex-wrap:wrap; gap:4px; padding:6px; border-radius:10px; background:var(--surface2)} .g-emojis[hidden]{display:none} .g-emojis button{font-size:19px; line-height:1; padding:5px 6px; border:none; background:none; border-radius:8px; cursor:pointer} .g-emojis button:hover{background:var(--surface)}
+  .g-editing .g-card, .g-editing .g-blk{position:relative}
+  .g-ctl{position:absolute; top:6px; right:6px; z-index:2; display:flex; gap:3px; opacity:.4; user-select:none} .g-card:hover>.g-ctl, .g-blk:hover>.g-ctl{opacity:1}
+  .g-ctl button,.g-drag{font:inherit; font-size:11.5px; line-height:1.4; border:1px solid var(--line); background:var(--canvas); color:var(--ink); border-radius:6px; padding:1px 7px; cursor:pointer} .g-drag{cursor:grab}
+  .g-drop-before{box-shadow:0 -4px 0 var(--accent) !important} .g-drop-after{box-shadow:0 4px 0 var(--accent) !important}
+  .g-img{display:block; max-width:100%; max-height:480px; border-radius:10px; border:1px solid var(--line-soft); margin:6px 0; cursor:zoom-in; background:var(--surface)}
+  .guide h3:not([class]){font-size:16px; font-weight:700; margin:4px 0} .guide p.g-warn,.guide li.g-warn{display:block}
   .guide.g-editing{outline:2px dashed var(--yellow); outline-offset:6px; border-radius:12px} .guide.g-editing:focus{outline-style:solid}
   .g-tools{display:inline-flex; gap:4px; margin-right:6px} .man-form{margin-top:6px}
   .more-cats summary{cursor:pointer; font-size:12.5px; font-weight:700; color:var(--accent-deep); padding:8px 4px 2px}
@@ -1691,25 +1701,47 @@ function viewReport() {
 }
 
 /* 상담 가이드 · 포스 매뉴얼: 회사 계정 화면에만 실린 원문(#guideSrc)을 보여 줍니다. 내용 키워드로 카드를 좁힐 수 있습니다. */
-let GEDIT = '', GDRAFT = null, GBUSY = false, GERR = '';
+let GEDIT = '', GDRAFT = null, GBUSY = false, GERR = '', GEMOJI = false, GSEL = null, GDRAG = null;
+// 저장 · 임시 보관용 HTML: 편집 도구(⠿ ↑ ↓ ✕) · 끌기 표시를 걷어 내고, 가이드 이미지는 주소 없이 번호(data-gimg)만 남깁니다.
+function guideCleanHtml(el) {
+  const box = document.createElement('div'); box.innerHTML = el ? el.innerHTML : '';
+  box.querySelectorAll('.g-ctl').forEach(n => n.remove());
+  box.querySelectorAll('[contenteditable],[spellcheck],[draggable]').forEach(n => { n.removeAttribute('contenteditable'); n.removeAttribute('spellcheck'); n.removeAttribute('draggable'); });
+  box.querySelectorAll('.g-hidden,.g-drop-before,.g-drop-after').forEach(n => n.classList.remove('g-hidden', 'g-drop-before', 'g-drop-after'));
+  box.querySelectorAll('img[data-gimg]').forEach(n => { if (!/^demo/.test(n.dataset.gimg)) n.removeAttribute('src'); });
+  return box.innerHTML;
+}
+// 가이드 이미지: 화면에 보이는 것만 받아 채움
+function loadGuideImages() {
+  host.querySelectorAll('img[data-gimg]:not([src])').forEach(img => { const id = 'g:' + img.dataset.gimg; fetchAtt(id).then(a => { if (a.url) host.querySelectorAll(`img[data-gimg="${img.dataset.gimg}"]`).forEach(x => { x.src = a.url; }); }); });
+}
 const canEditGuide = () => VIEWER.internal && mode !== 'share' && !STATIC;
 function viewGuide() {
   const srcEl = document.querySelector(`#guideSrc [data-guide="${view}"]`);
   if (!srcEl) return '<div class="notice"><span class="k">내부용</span><span class="t">상담 가이드는 회사 계정(ishopcare.co.kr)으로 로그인한 내부용 화면에서만 볼 수 있습니다.</span></div>';
   const q = flt('guide').q, editing = GEDIT === view;
-  const tools = !canEditGuide() ? '' : editing
-    ? `<span class="g-tools"><button class="btn sm" data-gfmt="bold" title="굵게"><b>B</b></button><button class="btn sm" data-gfmt="insertUnorderedList">• 목록</button><button class="btn sm" data-gfmt="insertOrderedList">1. 목록</button><button class="btn sm" data-gfmt="removeFormat">서식 지우기</button></span>
-       <span class="g-tools"><button class="btn sm" data-gadd="card" title="커서가 있는 카드 아래(없으면 맨 아래)에 새 카드">＋ 카드</button><button class="btn sm" data-gadd="blk" title="커서가 있는 문장 블록 아래에 새 블록(스크립트 · 안내 문장)">＋ 문장 블록</button><button class="btn sm" data-gadd="row" title="커서가 있는 표 줄 아래에 새 줄">＋ 표 줄</button><button class="btn sm" data-gadd="del" title="커서가 있는 카드 · 블록 지우기">지우기</button></span>
-       <button class="btn sm" data-gedit-reset>기본 내용으로</button><button class="btn sm" data-gedit-cancel>취소</button><button class="btn sm primary" data-gedit-save ${GBUSY ? 'disabled' : ''}>${GBUSY ? '저장 중…' : '저장'}</button>`
-    : '<button class="btn sm" data-gedit>✏️ 이 페이지 고치기</button>';
-  const bar = `<div class="fbar" data-fk="guide">${editing ? '<span class="hint" style="flex:1 1 260px">글자를 바로 눌러 고치세요. 새 내용은 넣을 자리에 커서를 두고 ＋ 버튼을 누르세요.</span>' : `<input type="search" data-f="q" placeholder="🔍 가이드 내용 키워드" value="${esc(q)}" aria-label="가이드 내용 검색" style="flex:1 1 260px">${q ? '<button class="btn sm" data-freset>조건 지우기</button>' : ''}`}<span class="fbar-end"><span class="hint" id="guideHits"></span>${tools}</span></div>`;
+  const B = (cmd, label, title) => `<button class="btn sm" data-gcmd="${cmd}" title="${title || ''}">${label}</button>`;
+  const bar = !editing
+    ? `<div class="fbar" data-fk="guide"><input type="search" data-f="q" placeholder="🔍 가이드 내용 키워드" value="${esc(q)}" aria-label="가이드 내용 검색" style="flex:1 1 260px">${q ? '<button class="btn sm" data-freset>조건 지우기</button>' : ''}<span class="fbar-end"><span class="hint" id="guideHits"></span>${canEditGuide() ? '<button class="btn sm" data-gedit>✏️ 이 페이지 고치기</button>' : ''}</span></div>`
+    : `<div class="g-editbar">
+        <div class="geb-row"><span class="geb-label">넣기</span>${B('card', '＋ 카드', '커서가 있는 카드 아래(없으면 맨 아래)에 새 카드')}${B('blk', '＋ 문장 블록', '커서 아래에 스크립트 · 안내 문장 블록')}${B('img', '＋ 이미지', '커서 자리에 이미지(5MB까지)')}${B('emoji', '＋ 이모지', '커서 자리에 이모지')}${B('row', '＋ 표 줄', '커서가 있는 표 줄 아래에 새 줄')}
+          <span class="geb-end"><button class="btn sm" data-gedit-reset>기본 내용으로</button><button class="btn sm" data-gedit-cancel>취소</button><button class="btn sm primary" data-gedit-save ${GBUSY ? 'disabled' : ''}>${GBUSY ? '저장 중…' : '저장'}</button></span></div>
+        <div class="geb-row"><span class="geb-label">글자</span>${B('bold', '<b>B</b> 굵게')}${B('hilite', '<span class="geb-hl">형광펜</span>')}${B('red', '<span style="color:var(--red);font-weight:800">빨간 글씨</span>')}${B('h3', '제목')}${B('p', '본문')}${B('warn', '⚠ 주의 상자')}${B('ul', '• 목록')}${B('ol', '1. 목록')}${B('clear', '서식 지우기')}
+          <span class="geb-label" style="margin-left:10px">옮기기</span>${B('up', '↑ 위로', '커서가 있는 문단 · 블록 · 카드를 위로')}${B('down', '↓ 아래로', '아래로')}${B('del', '지우기', '커서가 있는 문단 · 블록 · 카드 지우기')}</div>
+        <div class="g-emojis" ${GEMOJI ? '' : 'hidden'}>${'✅ ✔️ ❌ ⚠️ ❗ ❓ 📌 💡 🔥 ⭐ 👉 🙏 😊 📞 💳 🖨️ 📱 🧾 ⏰ 🛠️ ☕ 🚚 🏪 🔔 🔒'.split(' ').map(x => `<button data-gemoji="${x}">${x}</button>`).join('')}</div>
+        <div class="hint">글자를 바로 눌러 고치세요 · 카드와 문장 블록은 오른쪽 위 <b>⠿</b>를 끌어 순서를 바꾸거나 ↑ ↓ ✕ 로 옮기고 지울 수 있어요 · 위 '옮기기'는 커서가 있는 문단을 움직여요</div>
+        <input type="file" id="gImgInput" accept="image/*" hidden></div>`;
   const err = GERR ? `<div class="notice danger"><span class="k">저장 실패</span><span class="t">${esc(GERR)}</span></div>` : '';
   return `${bar}${err}<div class="guide ${editing ? 'g-editing' : ''}">${editing && GDRAFT != null ? GDRAFT : srcEl.innerHTML}</div>`;
 }
 // 가이드 그린 뒤: 해피콜 유형 버튼 상태와 키워드 거르기(카드 · 스크립트 블록 단위)
 function afterGuide() {
   const g = host.querySelector('.guide'); if (!g) return;
-  if (GEDIT === view) { g.setAttribute('contenteditable', 'true'); g.setAttribute('spellcheck', 'false'); }
+  loadGuideImages();
+  if (GEDIT === view) {
+    g.setAttribute('contenteditable', 'true'); g.setAttribute('spellcheck', 'false');
+    g.querySelectorAll('.g-card, .g-blk').forEach(el => { if (el.querySelector(':scope > .g-ctl')) return; const c = document.createElement('span'); c.className = 'g-ctl'; c.setAttribute('contenteditable', 'false'); c.innerHTML = '<span class="g-drag" draggable="true" title="끌어서 옮기기">⠿</span><button data-gmove="up" title="위로">↑</button><button data-gmove="down" title="아래로">↓</button><button data-gmove="del" title="지우기">✕</button>'; el.prepend(c); });
+  }
   g.querySelectorAll('[data-hct]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.hct === hcType)));
   g.querySelectorAll('[data-hcp]').forEach(p => { p.hidden = p.dataset.hcp !== hcType; });
   const words = flt('guide').q.trim().split(/\s+/).filter(Boolean).map(squash); if (!words.length || GEDIT === view) return;
@@ -1808,7 +1840,7 @@ function fetchAtt(id) {
   ATT[id] = { loading: true };
   const man = id.indexOf('man:') === 0;
   return new Promise(res => { const run = google.script.run.withSuccessHandler(text => { const d = JSON.parse(text); ATT[id] = { url: `data:${d.type};base64,${d.data}`, type: d.type, name: d.name }; res(ATT[id]); })
-    .withFailureHandler(e => { ATT[id] = { err: (e && e.message) || String(e) }; res(ATT[id]); }); if (man) run.getManualPhoto(id.slice(4)); else run.getUpdateAttachment(id); });
+    .withFailureHandler(e => { ATT[id] = { err: (e && e.message) || String(e) }; res(ATT[id]); }); if (man) run.getManualPhoto(id.slice(4)); else if (id.indexOf('g:') === 0) run.getGuideImage(id.slice(2)); else run.getUpdateAttachment(id); });
 }
 // 화면에 보이는 미리보기 이미지만 받아서 채웁니다(다시 그리지 않고 그 자리에 넣음).
 function loadThumbs() {
@@ -1915,7 +1947,7 @@ function render() {
     ? `<select id="monthSel">${months().map(m => `<option value="${m}" ${m === month ? 'selected' : ''}>${ymLabel(m)}</option>`).join('')}</select><button class="btn" id="printBtn">🖨 인쇄 · PDF</button>`
     : view === 'stores' ? `<div class="seg" id="scopeSeg">${Object.entries(scopes()).map(([k, l]) => `<button data-s="${k}" class="${scope === k ? 'on' : ''}">${l}</button>`).join('')}</div>` : '';
   const errs = (RAW.errors || []).length ? `<div class="notice danger"><span class="k">확인 필요</span><span class="t">${RAW.errors.map(esc).join('<br>')}</span></div>` : '';
-  if (GUIDE_VIEWS.includes(view)) { const g = host.querySelector('.guide.g-editing'); if (g && GEDIT) GDRAFT = g.innerHTML; document.getElementById('viewHost').innerHTML = viewGuide(); afterGuide(); return; }
+  if (GUIDE_VIEWS.includes(view)) { const g = host.querySelector('.guide.g-editing'); if (g && GEDIT) GDRAFT = guideCleanHtml(g); document.getElementById('viewHost').innerHTML = viewGuide(); afterGuide(); return; }
   if (view === 'precheck') { document.getElementById('viewHost').innerHTML = viewPrecheck(); loadThumbs(); return; }
   if (view === 'updates') { captureDraft(); document.getElementById('viewHost').innerHTML = viewUpdates(); loadThumbs(); return; }
   document.getElementById('viewHost').innerHTML = errs + { overview: viewOverview, records: viewRecords, stores: viewStores, equip: viewEquip, happy: viewHappy, process: viewProcess, issues: viewIssues, voc: viewVoc, cands: viewCands, report: viewReport }[view]();
@@ -1992,16 +2024,16 @@ host.addEventListener('click', e => {
   if (e.target.closest('[data-man-del-no]')) { MAN_DEL = ''; render(); return; }
   const my = e.target.closest('[data-man-del-yes]'); if (my) { const row = +my.dataset.manDelYes, cur = MAN.find(m => m.row === row) || {}; manCall('deletePrecheckStep', { row, oldTitle: cur.rawTitle != null ? cur.rawTitle : cur.title }); return; }
   // 상담 가이드 고치기: 고치기 시작 · 저장 · 취소 · 기본 내용으로
-  if (e.target.closest('[data-gedit]')) { GEDIT = view; GDRAFT = null; GERR = ''; flt('guide').q = ''; render(); return; }
+  if (e.target.closest('[data-gedit]')) { GEDIT = view; GDRAFT = null; GERR = ''; GEMOJI = false; flt('guide').q = ''; render(); return; }
+  // 보기 화면에서 가이드 이미지를 누르면 크게 보기
+  const gi = e.target.closest('.guide:not(.g-editing) img[data-gimg]'); if (gi) { openLightbox('g:' + gi.dataset.gimg); return; }
   if (e.target.closest('[data-gedit-cancel]')) { GEDIT = ''; GDRAFT = null; GERR = ''; render(); return; }
   const gsv = e.target.closest('[data-gedit-save]') || e.target.closest('[data-gedit-reset]');
   if (gsv) {
     if (GBUSY) return;
     const reset = gsv.hasAttribute('data-gedit-reset'), key = view, src = document.querySelector(`#guideSrc [data-guide="${key}"]`);
     if (reset && !confirm('이 페이지를 처음 기본 내용으로 되돌릴까요? 고친 내용은 사라집니다.')) return;
-    const box = document.createElement('div'); box.innerHTML = (host.querySelector('.guide') || {}).innerHTML || '';
-    box.querySelectorAll('[contenteditable],[spellcheck]').forEach(n => { n.removeAttribute('contenteditable'); n.removeAttribute('spellcheck'); });
-    box.querySelectorAll('.g-hidden').forEach(n => n.classList.remove('g-hidden'));
+    const box = document.createElement('div'); box.innerHTML = guideCleanHtml(host.querySelector('.guide'));
     const done = html => { GBUSY = false; if (src && html != null) src.innerHTML = html; GEDIT = ''; GDRAFT = null; render(); };
     GBUSY = true; GERR = ''; GDRAFT = box.innerHTML; render();
     if (!IS_GAS) { setTimeout(() => done(reset ? null : box.innerHTML), 0); return; }
@@ -2073,20 +2105,94 @@ document.querySelectorAll('.grp').forEach(g => {
   if (saved(`ctd-grp-${g.dataset.g}`) === 'closed') g.classList.add('closed');
   g.addEventListener('click', () => save(`ctd-grp-${g.dataset.g}`, g.classList.toggle('closed') ? 'closed' : 'open'));
 });
+// 편집 칸 안에서 마지막 커서 자리를 기억(이미지 · 이모지를 넣을 때 다시 씀)
+document.addEventListener('selectionchange', () => { const g = host.querySelector('.guide.g-editing'), s = window.getSelection(); if (g && s && s.rangeCount && g.contains(s.anchorNode)) GSEL = s.getRangeAt(0).cloneRange(); });
+function guideAt() { const g = host.querySelector('.guide.g-editing'), s = window.getSelection(); let n = s && s.anchorNode; if (!(g && n && g.contains(n)) && GSEL) n = GSEL.startContainer; if (!g || !n || !g.contains(n)) return { g, el: null }; return { g, el: n.nodeType === 1 ? n : n.parentElement }; }
+function guideInsert(node) {
+  const { g } = guideAt(); if (!g) return;
+  const s = window.getSelection();
+  if (GSEL && g.contains(GSEL.startContainer)) { s.removeAllRanges(); s.addRange(GSEL); }
+  if (s.rangeCount && g.contains(s.anchorNode)) { const r = s.getRangeAt(0); r.deleteContents(); r.insertNode(node); r.setStartAfter(node); r.collapse(true); s.removeAllRanges(); s.addRange(r); }
+  else (g.querySelector('.g-card:last-child') || g).appendChild(node);
+}
+// 옮기기: 대상의 앞 · 뒤 형제(편집 도구 제외)와 자리를 바꿈
+function guideMove(el, dir) {
+  if (!el) return;
+  let sib = dir < 0 ? el.previousElementSibling : el.nextElementSibling;
+  while (sib && sib.classList.contains('g-ctl')) sib = dir < 0 ? sib.previousElementSibling : sib.nextElementSibling;
+  if (!sib) return;
+  if (dir < 0) sib.before(el); else sib.after(el);
+  el.scrollIntoView({ block: 'nearest' });
+}
+const guideBlockOf = el => el && (el.closest('li') || el.closest('tbody tr') || el.closest('.g-blk') || el.closest('.g-say, .g-warn, .g-info, p, h3, h2') || el.closest('.g-card'));
 host.addEventListener('mousedown', e => {
-  const b = e.target.closest('[data-gfmt]'); if (b) { e.preventDefault(); document.execCommand(b.dataset.gfmt, false, null); return; }
-  const add = e.target.closest('[data-gadd]'); if (!add) return;
-  e.preventDefault();
-  const g = host.querySelector('.guide.g-editing'); if (!g) return;
-  const sel = window.getSelection(), at = sel && sel.anchorNode ? (sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement) : null;
-  const inside = at && g.contains(at) ? at : null, make = html => { const d = document.createElement('div'); d.innerHTML = html.trim(); return d.firstChild; };
+  const mv = e.target.closest('[data-gmove]');
+  if (mv) {
+    e.preventDefault();
+    const box = mv.closest('.g-card, .g-blk'); if (!box) return;
+    if (mv.dataset.gmove === 'del') { if (confirm((box.classList.contains('g-blk') ? '문장 블록' : '카드') + '을(를) 지울까요?')) box.remove(); }
+    else guideMove(box, mv.dataset.gmove === 'up' ? -1 : 1);
+    return;
+  }
+  const em = e.target.closest('[data-gemoji]'); if (em) { e.preventDefault(); guideInsert(document.createTextNode(em.dataset.gemoji)); return; }
+  const cmd = e.target.closest('[data-gcmd]');
+  if (cmd) {
+    e.preventDefault();
+    const c = cmd.dataset.gcmd, { g, el } = guideAt();
+    if (GSEL && g && g.contains(GSEL.startContainer)) { const s = window.getSelection(); s.removeAllRanges(); s.addRange(GSEL); }
+    const exec = (name, val) => document.execCommand(name, false, val || null);
+    if (c === 'bold') exec('bold'); else if (c === 'hilite') exec('hiliteColor', '#fff1a8'); else if (c === 'red') exec('foreColor', '#d70015');
+    else if (c === 'h3') exec('formatBlock', 'H3'); else if (c === 'p') exec('formatBlock', 'P'); else if (c === 'ul') exec('insertUnorderedList'); else if (c === 'ol') exec('insertOrderedList');
+    else if (c === 'clear') { exec('removeFormat'); exec('hiliteColor', 'transparent'); }
+    else if (c === 'warn') { const t = guideBlockOf(el); if (t && t !== g && !t.classList.contains('g-card')) { if (t.classList.contains('g-warn')) t.classList.remove('g-warn'); else t.classList.add('g-warn'); } }
+    else if (c === 'up' || c === 'down') guideMove(guideBlockOf(el), c === 'up' ? -1 : 1);
+    else if (c === 'del') { const t = guideBlockOf(el); if (t && confirm('커서가 있는 ' + (t.classList.contains('g-card') ? '카드' : t.classList.contains('g-blk') ? '문장 블록' : '문단') + '을(를) 지울까요?')) t.remove(); }
+    else if (c === 'emoji') { GEMOJI = !GEMOJI; const p = host.querySelector('.g-emojis'); if (p) p.hidden = !GEMOJI; }
+    else if (c === 'img') { const inp = document.getElementById('gImgInput'); if (inp) inp.click(); }
+    else if (c === 'card' || c === 'blk' || c === 'row') legacyGuideAdd(c, g, el);
+    return;
+  }
+});
+// 이미지 넣기: 긴 변 1600px · JPEG로 줄여 올리고(회사 계정 화면), 커서 자리에 넣음
+host.addEventListener('change', e => {
+  if (e.target.id !== 'gImgInput' || !e.target.files.length) return;
+  const file = e.target.files[0]; e.target.value = '';
+  const rd = new FileReader();
+  rd.onload = () => { const im = new Image(); im.onload = () => {
+    const k = Math.min(1, 1600 / Math.max(im.width, im.height)), cv = document.createElement('canvas'); cv.width = Math.round(im.width * k); cv.height = Math.round(im.height * k);
+    cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height);
+    const url = cv.toDataURL('image/jpeg', 0.85), data = url.slice(url.indexOf(',') + 1);
+    const put = id => { ATT['g:' + id] = { url, type: 'image/jpeg', name: file.name }; const img = document.createElement('img'); img.className = 'g-img'; img.dataset.gimg = id; img.src = url; img.alt = file.name; guideInsert(img); };
+    if (!IS_GAS) { put('demo' + Date.now()); return; }
+    GERR = ''; google.script.run.withSuccessHandler(put).withFailureHandler(err => { GERR = (err && err.message) || String(err); alert('이미지를 올리지 못했습니다: ' + GERR); }).saveGuideImage({ name: file.name, type: 'image/jpeg', data });
+  }; im.src = String(rd.result); };
+  rd.readAsDataURL(file);
+});
+// ⠿를 끌어 카드 · 문장 블록 순서 바꾸기(같은 종류끼리)
+host.addEventListener('dragstart', e => { const h = e.target.closest && e.target.closest('.g-drag'); if (!h) return; GDRAG = h.closest('.g-card, .g-blk'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', ''); } catch (er) {} });
+host.addEventListener('dragover', e => {
+  if (!GDRAG) return; const sel = GDRAG.classList.contains('g-blk') ? '.g-blk' : '.g-card', t = e.target.closest && e.target.closest(sel);
+  host.querySelectorAll('.g-drop-before,.g-drop-after').forEach(n => n.classList.remove('g-drop-before', 'g-drop-after'));
+  if (!t || t === GDRAG || GDRAG.contains(t)) return;
+  e.preventDefault(); const r = t.getBoundingClientRect(); t.classList.add(e.clientY < r.top + r.height / 2 ? 'g-drop-before' : 'g-drop-after');
+});
+host.addEventListener('drop', e => {
+  if (!GDRAG) return; const t = host.querySelector('.g-drop-before, .g-drop-after'); e.preventDefault();
+  if (t) { if (t.classList.contains('g-drop-before')) t.before(GDRAG); else t.after(GDRAG); t.classList.remove('g-drop-before', 'g-drop-after'); }
+  GDRAG = null;
+});
+host.addEventListener('dragend', () => { GDRAG = null; host.querySelectorAll('.g-drop-before,.g-drop-after').forEach(n => n.classList.remove('g-drop-before', 'g-drop-after')); });
+// ＋ 카드 · 문장 블록 · 표 줄
+function legacyGuideAdd(k, g, inside) {
+  if (!g) return;
+  const sel = window.getSelection();
+  const make = html => { const d = document.createElement('div'); d.innerHTML = html.trim(); return d.firstChild; };
   const place = (node, ref, fallback) => { if (ref) ref.after(node); else fallback.appendChild(node); const r = document.createRange(); r.selectNodeContents(node.querySelector('h3, .g-qt, td, .g-say, p') || node); sel.removeAllRanges(); sel.addRange(r); };
-  const k = add.dataset.gadd;
   if (k === 'card') { const ref = inside && inside.closest('.g-card'), box = (ref && ref.parentElement) || g.querySelector('.g-stack') || g; place(make('<div class="g-card"><h3 class="g-h3">새 항목 제목</h3><p class="g-lead">내용을 적어 주세요.</p></div>'), ref, box); }
   else if (k === 'blk') { const ref = inside && inside.closest('.g-blk'), card = inside && inside.closest('.g-col, .g-card'); place(make('<div class="g-blk"><p class="g-qt">새 문장 제목</p><div class="g-say">말할 내용 · 안내 문장을 적어 주세요.</div></div>'), ref, card || g.querySelector('.g-stack') || g); }
   else if (k === 'row') { const tr = inside && inside.closest('tr'); if (!tr || !tr.closest('tbody')) { alert('표 안의 줄에 커서를 두고 눌러 주세요.'); return; } const n = tr.children.length; place(make(`<table><tbody><tr>${'<td>새 칸</td>'.repeat(n)}</tr></tbody></table>`).querySelector('tr'), tr, tr.parentElement); }
-  else if (k === 'del') { const t = inside && (inside.closest('tr') && inside.closest('tbody') ? inside.closest('tr') : inside.closest('.g-blk') || inside.closest('.g-card')); if (!t || !g.contains(t)) { alert('지울 카드 · 블록 · 표 줄 안에 커서를 두고 눌러 주세요.'); return; } if (confirm('커서가 있는 ' + (t.tagName === 'TR' ? '표 줄' : t.classList.contains('g-blk') ? '문장 블록' : '카드') + '을(를) 지울까요?')) t.remove(); }
-});
+  afterGuide();
+}
 const tip = document.getElementById('tip');
 document.addEventListener('mousemove', e => { const g = e.target.closest && e.target.closest('[data-tip]'); document.querySelectorAll('.chart g.on').forEach(x => x !== g && x.classList.remove('on')); if (!g) { tip.style.opacity = 0; return; } if (g.tagName === 'g') g.classList.add('on'); tip.innerHTML = g.dataset.tip; tip.style.opacity = 1; tip.style.left = Math.min(window.innerWidth - tip.offsetWidth - 8, e.clientX + 14) + 'px'; tip.style.top = (e.clientY - 44) + 'px'; });
 const themeBtn = document.getElementById('themeBtn');
