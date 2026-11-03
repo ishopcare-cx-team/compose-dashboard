@@ -1073,7 +1073,7 @@ const methodBadge = m => `<span class="badge b-gray ${m === 'CS안내' ? 'm-cs' 
 const inflowTag = v => `<span class="tag ${v === '콜라비' ? 'in-cs' : v === '원격팀' ? 'in-oc' : v === '현장' ? 'in-vs' : 'in-etc'}">${esc(v || '—')}</span>`;
 const stage = r => r.status === '완료' ? '완료' : r.toss && !r.toss.done ? '토스플레이스 확인중' : r.visit && r.visit.pending ? '방문 예정' : r.remote && !r.remote.start ? '원격 대기' : r.remote ? '원격 진행 중' : '상담 처리중';
 const tile = (name, val, unit, sub, opt = {}) => `<div class="ov-tile ${opt.grand ? 'grand' : ''}" style="${opt.c ? '--c:' + opt.c : ''}"><div class="ov-name">${name}${opt.src ? `<span style="margin-left:auto">${opt.src}</span>` : ''}</div><div class="ov-val">${val}<small>${unit}</small></div><div class="ov-sub">${sub}</div></div>`;
-const hbars = (rows, max) => rows.map(([k, v, extra]) => `<div class="hbar"><div class="nm" title="${esc(k)}">${esc(k)}</div><div class="tr"><div class="fl" style="width:${max ? v / max * 100 : 0}%"></div></div><div class="v"><b>${num(v)}</b>건${extra ? ' · ' + extra : ''}</div></div>`).join('');
+const hbars = (rows, max) => rows.map(([k, v, extra]) => `<div class="hbar"><div class="nm" title="${esc(k)}">${esc(k)}</div><div class="tr"><div class="fl" style="width:${max ? v / max * 100 : 0}%${v ? '' : ';min-width:0'}"></div></div><div class="v"><b>${num(v)}</b>건${extra ? ' · ' + extra : ''}</div></div>`).join('');
 const countBy = (arr, f) => { const m = {}; arr.forEach(x => { const k = f(x); if (k != null && k !== '') m[k] = (m[k] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
 const delta = (v, p) => { const d = v - p; return d > 0 ? `<span class="delta up">▲ ${num(d)}</span>` : d < 0 ? `<span class="delta down">▼ ${num(-d)}</span>` : '<span class="delta flat">–</span>'; };
 // 원격 대기: 상담 시각 → 원격 착수(슬랙 담당 확인 이모지 시각, 없으면 원격팀 접수 시각)
@@ -1183,10 +1183,12 @@ function viewOverview() {
   let h = filterBar('overview', RECS.filter(r => inPeriod(r.at)), tags, rows.length);
   // 공유용(토스플레이스): 상담 건수 · 평균 해결 시간 · 시간대별 상담 추이 · 문의 유형 · 처리 흐름만 보여 줍니다.
   if (mode === 'share') {
-    const types = countBy(rows.filter(r => r.src === 'cs'), r => r.cat);
+    // 문의 유형: 지금까지 상담 내역에 나온 유형 전체를 보여 주고, 고른 기간에 없으면 0건으로 둡니다.
+    const counted = Object.fromEntries(countBy(rows.filter(r => r.src === 'cs'), r => r.cat));
+    const types = [...new Set(base.filter(r => r.src === 'cs').map(r => r.cat))].map(k => [k, counted[k] || 0]).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ko'));
     h += `<div class="ov-tiles" style="--n:2">${tile('상담 건수', num(s.total), '건', `${perLabel()} · 이전 기간 ${num(p.total)}건 (${d >= 0 ? '+' : '−'}${num(Math.abs(d))})`, { grand: true })}${tile('평균 해결 시간', fmtMin(s.avgMin), '', `이전 기간 ${fmtMin(p.avgMin)} · CS 완료 기준(방문 · 토스플레이스 확인 제외)`, { c: 'var(--s1)' })}</div>`;
     h += `<div class="card"><div class="card-head"><h3>시간대별 상담 추이</h3><span class="hint">${perLabel()} · 접수 시각 기준 · 합계 ${num(s.total)}건</span></div>${hourChart(rows)}</div>`;
-    h += `<div class="grid2 even grid-gap"><div class="card"><div class="card-head"><h3>문의 유형</h3><span class="hint">전체 ${num(types.length)}개</span></div>${types.length ? hbars(types, types[0][1]) : empty('없음')}</div>`
+    h += `<div class="grid2 even grid-gap"><div class="card"><div class="card-head"><h3>문의 유형</h3><span class="hint">전체 ${num(types.length)}개</span></div>${types.length ? hbars(types, Math.max(1, types[0][1])) : empty('없음')}</div>`
       + `<div class="card"><div class="card-head"><h3>처리 흐름</h3></div>${methodStack(s)}<div class="flow-stats">
         <div class="fstat"><span>상담 → 원격 착수</span><div><b>${fmtMin(s.avgWait)}</b><small>평균</small></div></div>
         <div class="fstat"><span>원격 → 현장 방문</span><div><b>${s.avgVisitDays == null ? '—' : s.avgVisitDays.toFixed(1)}</b><small>일 평균</small></div></div>
