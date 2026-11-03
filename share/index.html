@@ -50,6 +50,8 @@
     --shadow:0 1px 3px rgba(0,0,0,.5),0 8px 24px rgba(0,0,0,.55); --page:#17171a; color-scheme:dark;
   }
   *{box-sizing:border-box;margin:0;padding:0}
+  /* 페이지 길이에 따라 스크롤바가 생기고 없어지며 화면이 옆으로 밀리지 않게 자리를 늘 잡아 둡니다. */
+  html{scrollbar-gutter:stable}
   body{font-family:"Pretendard",-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","맑은 고딕","Segoe UI",Roboto,sans-serif;
     background:var(--page); color:var(--ink); -webkit-font-smoothing:antialiased; line-height:1.45; min-height:100vh}
 
@@ -90,6 +92,8 @@
   .toolbar{display:flex; justify-content:space-between; align-items:center; gap:14px; flex-wrap:wrap; background:var(--canvas); border:1px solid var(--line-soft);
     border-top:3px solid var(--yellow); border-radius:14px; padding:12px 14px; margin-bottom:20px; box-shadow:var(--shadow)}
   .toolbar .sub{font-size:13.5px; color:var(--gray); font-weight:600}
+  /* 넓은 화면: 조회 조건은 늘 같은 줄 오른쪽 끝(설명 글은 길면 … 으로 줄임) — 탭 · 기간 방식을 바꿔도 버튼 자리가 그대로 */
+  @media (min-width:1181px){ .toolbar{flex-wrap:nowrap} .toolbar .sub{flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap} .toolbar .controls{flex:0 0 auto; flex-wrap:nowrap} }
   .controls{display:flex; align-items:center; gap:10px; flex-wrap:wrap}
   select,input[type=search]{font-family:inherit; font-size:14px; padding:9px 13px; border:1px solid var(--line); border-radius:11px; background:var(--canvas); color:var(--ink)}
   select{cursor:pointer; font-weight:600}
@@ -367,7 +371,9 @@
   /* 공유용에서는 화면 안내 문구(공유용 표시 · 탭 설명)를 숨깁니다. 오류 알림과 상담 상세 안의 표시는 그대로 둡니다. */
   body.share #viewHost > .notice:not(.danger), body.share .share-only{display:none !important}
   /* 상담 내역 기간 조회 */
-  .per-more{display:flex; align-items:center; gap:6px; flex-wrap:wrap}
+  /* 당일 · 주간 · 월별 · 기간 상세 버튼이 모드를 바꿔도 같은 자리에 있도록 옆 칸 너비를 고정합니다(넓은 화면). */
+  .per-more{display:flex; align-items:center; justify-content:flex-start; gap:6px; flex-wrap:nowrap; width:420px}
+  @media (max-width:1180px){ .per-more{width:auto; flex-wrap:wrap} }
   .per-more input[type=date]{font-family:inherit; font-size:13.5px; padding:7px 10px; border:1px solid var(--line); border-radius:10px; background:var(--canvas); color:var(--ink)}
   .per-label{font-size:13.5px; font-weight:700; padding:0 6px; white-space:nowrap}
   .man-card .att-grid{margin-top:6px} .man-body p{margin:4px 0} .man-body ol,.man-body ul{padding-left:20px; margin:4px 0} .man-body li{margin:2px 0}
