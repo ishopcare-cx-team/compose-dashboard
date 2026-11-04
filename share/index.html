@@ -1476,6 +1476,16 @@ function flowHtml(steps) {
 // 타임라인 글: 첫 문장만 70자 안으로(다듬은 한 줄이 있으면 그것)
 const brief = (t, n = 70) => { const c = cleanText(t, 400); if (c.length <= n) return c; const m = c.match(/^.+?(?:다|요|음|함|됨|임)[.!?]?(?=\s|$)/); return cleanText(m ? m[0] : c, n); };
 // 타임라인 단계: text = 간략 타임라인용(첫 문장), full = 아래 가로 카드용(상담 내역 기준 상세, 오타 · 기호는 다듬은 글/정리로 제거)
+const compress = t => {
+  let c = cleanText(t, 2000); if (!c) return '';
+  c = (c.match(/^.+?(?:[.!?](?=\s|$)|(?:니다|어요|아요|에요|예요|해요|죠)(?=[\s.!?]|$))/) || [c])[0];
+  c = c.replace(/^(현재|우선|일단|혹시)\s+/, '')
+    .replace(/\s*(?:을|를)?\s*(요청|문의|확인|점검|전달|안내|공유|처리|진행|설치|교체)\s*(?:을|를)?\s*(?:드립니다|드려요|부탁드립니다|부탁드려요|합니다|했습니다|하였습니다|하셨습니다|해요|했어요|함|하심|드림|예정입니다|예정이에요)[.!?]?$/, ' $1')
+    .replace(/(?:되지\s*않습니다|되지\s*않아요|안\s*됩니다|안\s*돼요)[.!?]?$/, ' 안 됨')
+    .replace(/(?:했습니다|하였습니다|했어요|됐습니다|되었습니다|됐어요|입니다|이에요|예요|습니다|합니다|어요|아요|해요|니다)[.!?]?$/, '')
+    .replace(/[.!?,\s]+$/, '').trim();
+  return c;
+};
 function tlItems(r) {
   if (r.viaCollab && r.toss) {
     const T = r.toss, sm = T.sum || {}, items = [], via = r.method === '현장 지원' ? '현장' : '원격';
@@ -1488,24 +1498,24 @@ function tlItems(r) {
   const S = r.slack || {}, R = r.remote, T = r.toss, V = r.visit, items = [];
   const add = (step, label, t, text, tag, full) => items.push({ step, label, t: t || null, text: text || '', tag: tag || '', full: full || text || '' });
   const via = r.inflow === 'OS' ? 'OS' : r.src === 'oc' ? (r.cxHandoff ? 'CX' : r.remote ? '원격' : '현장') : r.inflow === '콜라비' ? 'CX' : r.inflow === '법인폰·수기' ? '법인폰' : r.inflow || 'CX';
-  const lines = a => a.filter(Boolean).join('\n');
+  const lines = a => a.filter(Boolean).join('\n'), L = (r.caseSum && r.caseSum.lines) || {};
   // ① 인입
-  add(1, `인입 · ${via}`, r.at, r.q || r.cat, '', lines([r.qFull || r.q, r.cat ? `문의유형: ${r.cat}` : '', r.channel ? `장비·채널: ${r.channel}` : '', r.cx ? `접수: ${fullName(r.cx)}` : '']));
-  const said = new Set([brief(r.q || r.cat)]), uniq = t => { const b = brief(t); if (!b || said.has(b)) return ''; said.add(b); return b; };
+  add(1, `인입 · ${via}`, r.at, L.intake || compress(r.q) || r.cat, '', lines([r.qFull || r.q, r.cat ? `문의유형: ${r.cat}` : '', r.channel ? `장비·채널: ${r.channel}` : '', r.cx ? `접수: ${fullName(r.cx)}` : '']));
+  const said = new Set([compress(r.q || r.cat)]), uniq = t => { const b = compress(t); if (!b || said.has(b)) return ''; said.add(b); return b; };
   // ② 원격 지원 요청
-  if (R && (R.linked || R.req || S.remoteAt)) add(2, '원격 지원 요청 → 원격팀', P(S.remoteAt) || R.start || R.handoff, uniq(R.req) || '원격팀 지원 요청', '',
+  if (R && (R.linked || R.req || S.remoteAt)) add(2, '원격팀 지원 요청', P(S.remoteAt) || R.start || R.handoff, L.request || uniq(R.req) || '원격 지원 요청', '',
     lines([R.req || '원격팀 지원 요청', R.requester ? `요청: ${fullName(R.requester)}${R.requesterTeam ? ` (${R.requesterTeam})` : ''}` : '']));
   // ③ 원격 확인 · 1차 조치(확인한 시각 + 그때 본 내용 · 조치를 한 줄로)
   const doneT0 = r.doneAt || P(S.doneAt), ackRaw = R && (R.ackAt || R.startAt), ackLate = ackRaw && doneT0 && ackRaw > doneT0;
   const ackT = ackLate ? null : ackRaw, owner = R && fullName(R.ackBy || R.startBy || R.owner);
-  if (R && R.linked && (ackT || R.action)) add(3, `원격 확인 · 1차 조치${owner ? ` · ${owner}` : ''}${ackLate ? ` (기록 업로드 ${dts(ackRaw)})` : ''}`, ackT || null, uniq(R.action) || '원격 담당자 확인', '',
+  if (R && R.linked && (ackT || R.action)) add(3, `원격 확인 · 1차 조치${owner ? ` · ${owner}` : ''}${ackLate ? ` (기록 업로드 ${dts(ackRaw)})` : ''}`, ackT || null, L.first || uniq(R.action) || '원격 담당자 확인', '',
     lines([R.action || '원격 담당자 확인', R.ackAt ? `확인 ${dts(R.ackAt)}` : '', R.startAt && (!R.ackAt || R.startAt - R.ackAt >= 60000) ? `착수 ${dts(R.startAt)}` : '', owner ? `담당: ${owner}` : '']));
   // ④ 2차 대응: 원격으로 끝나지 않아 다음 대응으로 넘어간 것(현장 방문 요청 · 토스플레이스 이관). 확인 중인 내용이라 '해결' 태그는 없음
   if (V) {
     const eq = V.equip || (String(V.action || '').length <= 12 ? V.action : ''), need = eq ? ` (${eq} ${/교체/.test(V.kind || '') ? '교체' : /AS/i.test(V.kind || '') ? 'AS' : '점검'} 필요)` : '';
-    add(4, '2차 대응 · 현장 방문 요청', R && R.resultAt ? R.resultAt : null, `현장 방문 요청${need}`, '', lines([`현장 ${V.kind || '방문'} 요청${need}`, V.by ? `현장 담당: ${fullName(V.by)}` : '', V.pending ? `방문 예정일: ${ymd(V.date)}` : '']));
+    add(4, '2차 대응 · 현장 방문 요청', R && R.resultAt ? R.resultAt : null, L.second || `현장 방문 요청${need}`, '', lines([`현장 ${V.kind || '방문'} 요청${need}`, V.by ? `현장 담당: ${fullName(V.by)}` : '', V.pending ? `방문 예정일: ${ymd(V.date)}` : '']));
   }
-  if (T) add(4, '2차 대응 · 토스플레이스 이관', T.asked, (T.slack && T.slack.question) || '토스플레이스에 확인 요청', '',
+  if (T) add(4, '2차 대응 · 토스플레이스 이관', T.asked, (!V && L.second) || uniq(T.slack && T.slack.question) || '토플에 확인 요청', '',
     lines([(T.slack && T.slack.question) || '토스플레이스에 확인 요청', T.done && T.done - T.asked >= 60000 ? `토스플레이스 회신 ${dts(T.done)}${T.slack && T.slack.answer ? `: ${T.slack.answer}` : ''}` : T.done ? '토스플레이스 회신 받음' : '회신 기다리는 중']));
   // ⑤ 최종 해결: 현장 방문이 있으면 그 조치, 아니면 tf 조치 · 상담 조치 · 정리 결과 · 원격 결과 · 토플 회신 · 안내 순
   if (r.status === '완료') {
@@ -1513,14 +1523,14 @@ function tlItems(r) {
     const endAt = r.doneAt || P(S.doneAt) || visitEnd || (r.minutes != null ? new Date(r.at.getTime() + r.minutes * 60000) : null);
     const visitText = V && !V.pending ? `현장 ${V.kind || '방문'} 조치 완료${V.action ? ` · ${V.action}` : V.equip ? ` · ${V.equip}` : ''}` : '';
     const result = S.action || visitText || r.csAction || (r.caseSum && r.caseSum.result) || (R && (R.action || R.result)) || (T && T.slack && T.slack.answer) || (r.method === 'CS안내' ? r.a : '');
-    add(5, '최종 해결', endAt, result ? brief(result, 90) : '처리 결과 기록 없음', '해결',
+    add(5, '최종 해결', endAt, L.result || compress(result) || '처리 결과 기록 없음', '해결',
       lines([result || '처리 결과 기록 없음', r.minutes != null ? `처리 시간: ${r.minutesBy === '상담 중 해결' ? '상담 중 해결' : fmtMin(r.minutes)}` : '', V && !V.pending && V.equip ? `현장 장비: ${V.equip}` : '']));
   }
   return items.sort((x, y) => x.step - y.step || (x.t ? x.t.getTime() : Infinity) - (y.t ? y.t.getTime() : Infinity));
 }
 const tlTagCls = t => /해결|완료|회신/.test(t) ? 'ok' : /이관|토플/.test(t) ? 'purple' : /부재|진행|예정/.test(t) ? 'warn' : '';
 function recTimeline(r) {
-  return `<ol class="rtl">${tlItems(r).map(x => `<li class="s${x.step}"><time>${esc(x.t ? dts(x.t) : '')}</time><div><b>${esc(x.label)}</b>${x.tag ? ` <span class="tag ${tlTagCls(x.tag)}">${esc(x.tag)}</span>` : ''}${x.text ? `<p>${esc(brief(x.text))}</p>` : ''}</div></li>`).join('')}</ol>`;
+  return `<ol class="rtl">${tlItems(r).map(x => `<li class="s${x.step}"><time>${esc(x.t ? dts(x.t) : '')}</time><div><b>${esc(x.label)}</b>${x.tag ? ` <span class="tag ${tlTagCls(x.tag)}">${esc(x.tag)}</span>` : ''}${x.text ? `<p>${esc(x.text)}</p>` : ''}</div></li>`).join('')}</ol>`;
 }
 // 아래 토글: 타임라인 단계별 가로 카드(카드마다 다른 파스텔 단색), 상세 글은 줄 단위로
 function tlCards(r) {
@@ -1579,8 +1589,12 @@ function recDetail(r) {
   const chips = [[r.dupIds ? `${r.dupIds.join(', ')} 합침(중복 업로드)` : '', '중복'], [firstLabel, '1차 대응'], [nexts ? `이후 재인입 ${nexts}` : '', '연결'], [r.method, '처리 방식'], [r.channel, '장비·채널'], [r.cat, '문의유형'], [total != null && done ? `총 ${fmtMin(total)}` : '', '소요']].filter(x => x[0] && x[0] !== '—');
   // 건별 정리(Claude가 기록을 시간순으로 읽고 만든 결과)가 있으면 맨 위에 결과 · 남은 일 · 타임라인을 두고, 단계 카드는 접어 둡니다.
   const C = r.caseSum, stCls = s => /해결/.test(s) ? 'ok' : /이관/.test(s) ? 'purple' : /확인/.test(s) ? 'red' : 'warn';
-  const sumHtml = C && C.result ? `<div class="case-sum"><div class="cs-head"><span class="tag ${stCls(C.state)}">${esc(C.state || '정리')}</span><b>${esc(C.result)}</b></div>${C.todo ? `<div class="cs-todo"><span>남은 일</span>${esc(C.todo)}</div>` : ''}
-    <div class="hint">결과 · 남은 일은 Claude가 관련 기록을 읽고 정리한 내용입니다.${/해결/.test(C.state || '') && VIEWER.internal && mode !== 'share' ? ` ${r.caseFix === '해제' ? '완료 판단을 해제한 건입니다(콜라비 상태를 따름).' : r.statusByCase ? `콜라비 상태(${esc(r.statusRaw)}) 대신 기록으로 완료 처리했습니다.` : ''} <button class="btn sm" data-casefix="${esc(r.caseKey)}" data-v="${r.caseFix === '해제' ? '적용' : '해제'}">${r.caseFix === '해제' ? '완료 판단 다시 적용' : '완료 판단 해제'}</button>` : ''}</div></div>` : '';
+  // 요약 한 줄: Claude 정리(증상 · 거친 대응 · 해결 방법) → 없으면 단계에서 만든 한 줄
+  const hIts = tlItems(r), hMid = hIts.filter(x => x.step === 4).map(x => /토스/.test(x.label) ? '토플 이관' : /현장/.test(x.label) ? '현장 방문' : '').filter(Boolean);
+  const hRes = hIts.find(x => x.step === 5), headline = (C && C.headline) || [compress(r.q) || r.cat, ...hMid, hRes ? `${hRes.text}${/해결|정상/.test(hRes.text) ? '' : '로 해결'}` : '확인 중'].filter(Boolean).join(', ');
+  const doneTag = r.status === '완료' ? '해결' : /이관|토플/.test(r.status) ? '이관' : '진행 중';
+  const fixBtn = C && /해결/.test(C.state || '') && VIEWER.internal && mode !== 'share' ? `<button class="btn sm" style="margin-left:auto" data-casefix="${esc(r.caseKey)}" data-v="${r.caseFix === '해제' ? '적용' : '해제'}" title="${r.statusByCase ? `콜라비 상태(${esc(r.statusRaw)}) 대신 기록으로 완료 처리` : ''}">${r.caseFix === '해제' ? '완료 판단 다시 적용' : '완료 판단 해제'}</button>` : '';
+  const sumHtml = `<div class="case-sum"><div class="cs-head"><span class="tag ${stCls(doneTag)}">${esc(doneTag)}</span><b>${esc(headline)}</b>${fixBtn}</div></div>`;
   const raw = r.tidy && VIEWER.internal && mode !== 'share' ? `<details class="raw-text"><summary>원문 보기</summary><div><b>문의</b> ${esc(r.qRaw || '—')}</div><div><b>안내</b> ${esc(r.aRaw || '—')}</div></details>` : '';
   return `<div class="flow"><div class="facts">${chips.map(([v, k]) => `<span>${k} <b>${esc(v)}</b></span>`).join('')}${r.slackOnly ? '<span class="tag warn">상담 내역 입력 전 · 슬랙 기준</span>' : ''}${r.src === 'oc' && CS_LAST && r.date > CS_LAST ? '<span class="tag warn">콜라비 입력 전일 수 있음</span>' : ''}${r.slack && r.slack.link ? `<a class="link internal" href="${esc(r.slack.link)}" target="_blank" rel="noopener">슬랙에서 보기 ↗</a>` : ''}</div>${sumHtml}${recTimeline(r)}${tlCards(r)}${raw}</div>`;
 }
