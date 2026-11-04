@@ -807,7 +807,9 @@ function buildModel(raw) {
     // 장비·채널: 통합 이슈 값 → 슬랙 AI 분석 값 → 문의 글에서 추정
     const aiChannel = sl && (CH_RENAMES[sl.aiChannel] || sl.aiChannel);
     // 인입 채널: 상담 내역(콜라비)에 있는 건은 상담 인입 경로로(현장 · 원격팀 · 콜라비). 슬랙 '출처'(수기 · 워크플로 · 협업채널)는 상담 내역에 아직 없는 글에만 씁니다.
-    const inflow = c.slackOnly && sl && sl.source && sl.source !== '콜라비' ? (/^(수기|법인폰)$/.test(sl.source) ? '법인폰·수기' : sl.source) : /현장/.test(c.route || '') ? '현장' : /원격/.test(c.route || '') ? '원격팀' : '콜라비';
+    // 법인폰: 글 양식의 인입유형 · 상담 인입 경로 · 문의에 '법인폰'이 있거나, 수기 접수 워크플로로 올린 글. 그 밖에 상담 내역에 있으면 콜라비.
+    const viaPhone = sl && (/법인폰/.test([sl.intake, c.route, c.question].join(' ')) || sl.source === '워크플로');
+    const inflow = viaPhone ? '법인폰·수기' : c.slackOnly && sl && sl.source && sl.source !== '콜라비' ? (/^(수기|법인폰)$/.test(sl.source) ? '법인폰·수기' : sl.source) : /현장/.test(c.route || '') ? '현장' : /원격/.test(c.route || '') ? '원격팀' : '콜라비';
     return { id: c.receipt || (c.slackOnly ? `${c.at.slice(2, 10).replace(/-/g, '.')}-S${c.at.slice(11, 16).replace(':', '')}` : `CS-${c.at}`), src: 'cs', inflow, slackOnly: !!c.slackOnly, at, date: ymd(at), store: st ? st.name : (c.store || '—'), skey: st ? st.key : '', slack: sl,
       channel: iss && CHANNELS.includes(iss.channel) ? iss.channel : CHANNELS.includes(aiChannel) ? aiChannel : guessChannel([c.major, c.middle, c.minor, c.question].join(' ')),
       cat: [c.major, c.middle].filter(Boolean).join(' · ') || '미분류', q: c.qTidy || c.question, a: c.qTidy ? (c.aTidy || '') : c.answer, qRaw: c.questionRaw || c.question, aRaw: c.answerRaw || c.answer, tidy: !!c.qTidy, caseSum: c.caseSum || null, caseKey: c.receipt || `${c.at}|${c.store}`, caseFix: c.caseFix || '', caseDone: !!(c.caseSum && /해결/.test(c.caseSum.state || '')) && c.caseFix !== '해제', route: c.route || '—', cx: c.cx || '',
@@ -1401,6 +1403,8 @@ function recDetail(r) {
   // 협업채널에 같은 매장이 나온 글(상담 하루 전 ~ 사흘 뒤): 글 요약과 댓글로 본 처리 결과
   (CANDS || []).filter(c => c.channel === '협업채널' && c.store && String(c.store).split(/,\s*/).map(skey).includes(r.skey)).forEach(c => {
     const t = P(`${c.date} ${c.time}`); if (!t || t < addDay(r.at, -1) || t > addDay(r.at, 3)) return;
+    // 같은 시각(30분 안)에 토스플레이스 확인 단계가 있으면 같은 확인 요청이므로 따로 그리지 않음
+    if (r.toss && r.toss.asked && Math.abs(r.toss.asked - t) <= 30 * 60000) return;
     steps.push({ name: '협업채널 공유', color: 'var(--purple)', t, time: dt(t).slice(5), text: c.title || c.summary, sub: c.reply || '', subLabel: '결과 ' });
   });
   if (r.visit) {
