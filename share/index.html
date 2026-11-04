@@ -398,7 +398,15 @@
   .g-drop-before{box-shadow:0 -4px 0 var(--accent) !important} .g-drop-after{box-shadow:0 4px 0 var(--accent) !important}
   .g-img{display:block; max-width:100%; max-height:480px; border-radius:10px; border:1px solid var(--line-soft); margin:6px 0; cursor:zoom-in; background:var(--surface)}
   .guide h3:not([class]){font-size:16px; font-weight:700; margin:4px 0} .guide p.g-warn,.guide li.g-warn{display:block}
-  .guide.g-editing{outline:2px dashed var(--yellow); outline-offset:6px; border-radius:12px} .guide.g-editing:focus{outline-style:solid}
+  .guide.g-editing{outline:2px dashed var(--yellow); outline-offset:6px; border-radius:12px}
+  .case-sum{background:var(--canvas); border:1px solid var(--line); border-radius:14px; padding:14px 16px; margin:10px 0; display:flex; flex-direction:column; gap:8px}
+  .cs-head{display:flex; gap:8px; align-items:baseline; flex-wrap:wrap} .cs-head b{font-size:15px}
+  .cs-todo{font-size:13px} .cs-todo span{font-weight:700; color:var(--orange); margin-right:6px}
+  .cs-tl{list-style:none; margin:0; padding:0 0 0 12px; border-left:2px solid var(--line); display:flex; flex-direction:column; gap:6px}
+  .cs-tl li{display:grid; grid-template-columns:86px 78px 1fr; gap:8px; font-size:13px; position:relative} .cs-tl li::before{content:""; position:absolute; left:-17px; top:6px; width:8px; height:8px; border-radius:50%; background:var(--accent)}
+  .cs-tl time{font-variant-numeric:tabular-nums; color:var(--gray2)} .cs-tl em{font-style:normal; font-weight:700}
+  .cs-steps>summary{cursor:pointer; font-size:12.5px; color:var(--gray2); margin:4px 0}
+  @media (max-width:600px){.cs-tl li{grid-template-columns:76px 1fr}.cs-tl li span{grid-column:1 / -1}} .guide.g-editing:focus{outline-style:solid}
   .g-tools{display:inline-flex; gap:4px; margin-right:6px} .man-form{margin-top:6px}
   .more-cats summary{cursor:pointer; font-size:12.5px; font-weight:700; color:var(--accent-deep); padding:8px 4px 2px}
   /* 처리 내역: 처리 구분 칸(원격팀 대시보드 색) */
@@ -775,7 +783,7 @@ function buildModel(raw) {
     const inflow = c.slackOnly && sl && sl.source && sl.source !== '콜라비' ? sl.source : /현장/.test(c.route || '') ? '현장' : /원격/.test(c.route || '') ? '원격팀' : '콜라비';
     return { id: c.receipt || (c.slackOnly ? `슬랙-${c.at.slice(2, 16).replace(/[- :]/g, '')}` : `CS-${c.at}`), src: 'cs', inflow, slackOnly: !!c.slackOnly, at, date: ymd(at), store: st ? st.name : (c.store || '—'), skey: st ? st.key : '', slack: sl,
       channel: iss && CHANNELS.includes(iss.channel) ? iss.channel : CHANNELS.includes(aiChannel) ? aiChannel : guessChannel([c.major, c.middle, c.minor, c.question].join(' ')),
-      cat: [c.major, c.middle].filter(Boolean).join(' · ') || '미분류', q: c.qTidy || c.question, a: c.qTidy ? (c.aTidy || '') : c.answer, qRaw: c.question, aRaw: c.answer, tidy: !!c.qTidy, route: c.route || '—', cx: c.cx || '',
+      cat: [c.major, c.middle].filter(Boolean).join(' · ') || '미분류', q: c.qTidy || c.question, a: c.qTidy ? (c.aTidy || '') : c.answer, qRaw: c.question, aRaw: c.answer, tidy: !!c.qTidy, caseSum: c.caseSum || null, caseDone: !!(c.caseSum && /해결/.test(c.caseSum.state || '')), route: c.route || '—', cx: c.cx || '',
       method: c.method || '—', status: c.status || '처리중', doneAt: done, minutes: validMinutes(c.minutes != null ? c.minutes : done ? (done - at) / 60000 : null),
       toss: c.tossAsked ? { asked: P(c.tossAsked), done: P(c.tossDone) } : null, csOwner: c.owner || '', csAction: c.action || '', issue: iss || null, remote: null, visit: null };
   }).filter(Boolean);
@@ -863,6 +871,8 @@ function buildModel(raw) {
   CS_LAST = RECS.filter(r => r.src === 'cs' && !r.slackOnly).reduce((m, r) => r.date > m ? r.date : m, '');
   RECS = RECS.concat(orphans).sort((a, b) => b.at - a.at);
   linkReinflow();
+  // 처리상태: 콜라비 · 슬랙 상태가 아직 '처리중'이어도, 관련 채널 기록을 읽어 해결로 확인된 건(건별 정리)은 완료로 봅니다.
+  RECS.forEach(r => { if (r.caseDone && r.status !== '완료') { r.statusRaw = r.status; r.status = '완료'; r.statusByCase = true; } });
   STORES.forEach(buildInventory);
   STORES.forEach(s => { s.isNew = !!s.installed && (TODAY - P(s.installed)) < 60 * 864e5 && P(s.installed) <= TODAY; });
   LINKSTAT = { toss: (raw.toss || []).length, tossLinked, cs: RECS.filter(r => r.src === 'cs').length, slack: raw.slackStat || { total: 0, matched: 0 }, as: asRecs.length, asLinked, asOrphan: asRecs.length - asLinked, csOnly, visitAs, visitLinked,
@@ -1360,8 +1370,12 @@ function recDetail(r) {
     : { name: stage(r), color: 'var(--orange)', t: null, time: '진행 중', text: `접수 후 ${fmtMin((TODAY - r.at) / 60000)} 지남` });
   const nexts = (r.nextRecs || []).map(n => `${n.id}(${dt(n.at).slice(5)})`).join(', ');
   const chips = [[nexts ? `이후 재인입 ${nexts}` : '', '연결'], [r.method, '처리 방식'], [r.channel, '장비·채널'], [r.cat, '문의유형'], [total != null && done ? `총 ${fmtMin(total)}` : '', '소요']].filter(x => x[0] && x[0] !== '—');
+  // 건별 정리(Claude가 기록을 시간순으로 읽고 만든 결과)가 있으면 맨 위에 결과 · 남은 일 · 타임라인을 두고, 단계 카드는 접어 둡니다.
+  const C = r.caseSum, stCls = s => /해결/.test(s) ? 'ok' : /이관/.test(s) ? 'purple' : /확인/.test(s) ? 'red' : 'warn';
+  const sumHtml = C && C.result ? `<div class="case-sum"><div class="cs-head"><span class="tag ${stCls(C.state)}">${esc(C.state || '정리')}</span><b>${esc(C.result)}</b></div>${C.todo ? `<div class="cs-todo"><span>남은 일</span>${esc(C.todo)}</div>` : ''}
+    ${(C.timeline || []).length ? `<ol class="cs-tl">${C.timeline.map(e => `<li><time>${esc(e.t)}</time><em>${esc(e.who)}</em><span>${esc(e.what)}</span></li>`).join('')}</ol>` : ''}<div class="hint">Claude가 관련 기록을 시간순으로 읽고 정리한 내용입니다.</div></div>` : '';
   const raw = r.tidy && VIEWER.internal && mode !== 'share' ? `<details class="raw-text"><summary>원문 보기</summary><div><b>문의</b> ${esc(r.qRaw || '—')}</div><div><b>안내</b> ${esc(r.aRaw || '—')}</div></details>` : '';
-  return `<div class="flow"><div class="facts">${chips.map(([v, k]) => `<span>${k} <b>${esc(v)}</b></span>`).join('')}${r.slackOnly ? '<span class="tag warn">상담 내역 입력 전 · 슬랙 기준</span>' : ''}${r.src === 'oc' && CS_LAST && r.date > CS_LAST ? '<span class="tag warn">콜라비 입력 전일 수 있음</span>' : ''}${r.slack && r.slack.link ? `<a class="link internal" href="${esc(r.slack.link)}" target="_blank" rel="noopener">슬랙에서 보기 ↗</a>` : ''}</div>${flowHtml(steps)}${raw}</div>`;
+  return `<div class="flow"><div class="facts">${chips.map(([v, k]) => `<span>${k} <b>${esc(v)}</b></span>`).join('')}${r.slackOnly ? '<span class="tag warn">상담 내역 입력 전 · 슬랙 기준</span>' : ''}${r.src === 'oc' && CS_LAST && r.date > CS_LAST ? '<span class="tag warn">콜라비 입력 전일 수 있음</span>' : ''}${r.slack && r.slack.link ? `<a class="link internal" href="${esc(r.slack.link)}" target="_blank" rel="noopener">슬랙에서 보기 ↗</a>` : ''}</div>${sumHtml ? `${sumHtml}<details class="cs-steps"><summary>단계별 시각 보기</summary>${flowHtml(steps)}</details>` : flowHtml(steps)}${raw}</div>`;
 }
 function viewRecords() {
   const scoped = RECS.filter(r => inPeriod(r.at)), rows = recFilter('records', scoped, REC_TAGS), s = stats(rows), p = paged('records', rows, 30);
