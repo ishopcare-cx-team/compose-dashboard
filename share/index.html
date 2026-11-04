@@ -437,7 +437,8 @@
   .rtl time{font-variant-numeric:tabular-nums; color:var(--gray2); white-space:nowrap} .rtl b{font-weight:700} .rtl p{margin:2px 0 0; color:var(--ink)}
   @media (max-width:640px){ .rtl li{grid-template-columns:1fr} }
   .vp-box.cause{background:var(--surface2)}
-  .tlc{display:flex; align-items:stretch; gap:8px; overflow-x:auto; padding:6px 2px 10px}
+  .xd-wrap{width:0; min-width:100%}
+  .tlc{display:flex; align-items:stretch; gap:8px; overflow-x:auto; padding:6px 2px 10px; max-width:100%}
   .tlc-card{flex:0 0 230px; border-radius:14px; padding:12px 14px; background:var(--pc); color:var(--ink); font-size:13px; line-height:1.55}
   .tlc-card p{margin:4px 0 0; white-space:normal} .tlc-h{font-weight:800; font-size:13.5px} .tlc-t{font-size:12px; color:var(--gray2); font-variant-numeric:tabular-nums; margin-top:2px}
   .tlc-arrow{align-self:center; color:var(--gray2); font-size:18px}
@@ -1362,7 +1363,7 @@ function filterBar(k, base, tags, shown, opt = {}) {
 }
 // 누르면 바로 아래 줄에 상세가 펼쳐지는 표 줄
 const FMORE = new Set();
-const xrow = (key, cells, cols, detail) => { const o = OPEN.has(key); return `<tr class="click ${o ? 'open' : ''}" data-open="${esc(key)}" aria-expanded="${o}">${cells}</tr>${o ? `<tr class="xd"><td colspan="${cols}">${detail()}</td></tr>` : ''}`; };
+const xrow = (key, cells, cols, detail) => { const o = OPEN.has(key); return `<tr class="click ${o ? 'open' : ''}" data-open="${esc(key)}" aria-expanded="${o}">${cells}</tr>${o ? `<tr class="xd"><td colspan="${cols}"><div class="xd-wrap">${detail()}</div></td></tr>` : ''}`; };
 const caret = key => `<span class="caret">${OPEN.has(key) ? '▴' : '▾'}</span>`;
 function paged(k, rows, per) { const pages = Math.max(1, Math.ceil(rows.length / per)); PG[k] = Math.min(Math.max(1, PG[k] || 1), pages); return { rows: rows.slice((PG[k] - 1) * per, PG[k] * per), pages, page: PG[k] }; }
 const pager = (k, p) => p.pages > 1 ? `<div class="controls" style="margin-top:14px;justify-content:center"><button class="btn sm" data-pk="${k}" data-page="${p.page - 1}" ${p.page < 2 ? 'disabled' : ''}>◀ 이전</button><span class="hint">${p.page} / ${p.pages}</span><button class="btn sm" data-pk="${k}" data-page="${p.page + 1}" ${p.page >= p.pages ? 'disabled' : ''}>다음 ▶</button></div>` : '';
