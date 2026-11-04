@@ -973,9 +973,9 @@ function buildModel(raw) {
   });
   TOSS_ONLY.filter(t => t.slack && t.slack.channel === '협업채널' && t.skey).forEach(t => {
     t.asRec = true;
-    const sm = t.sum || {}, mth = { '현장 지원': '현장 지원', '원격 지원': '원격지원', 'CS 안내': 'CS안내', '토스플레이스 확인': '토스플레이스 확인' }[sm.method] || '토스플레이스 확인';
+    const sm = t.sum || {}, mth = { '현장 지원': '현장 지원', '원격 지원': '원격지원', 'CS 안내': 'CS안내', '토스플레이스 확인': '토스플레이스 확인' }[sm.method] || (/교체|설치|방문|현장|회수|철거/.test(t.slack.question || '') ? '현장 지원' : '토스플레이스 확인');
     orphans.push({ id: `${t.date.slice(2).replace(/-/g, '.')}-C${hm(t.at).replace(':', '')}`, src: 'oc', inflow: mth === '현장 지원' ? '현장' : '원격팀', side: '원격', viaCollab: true, at: t.at, date: t.date, store: t.store, skey: t.skey,
-      cat: sm.category || '협업채널 문의', channel: guessChannel(t.slack.question), q: sm.intake || t.slack.question || '협업채널 문의', a: '', method: mth, status: t.done || sm.resolved ? '완료' : '처리중',
+      cat: sm.category || '기능 관련 · 원격 지원', channel: guessChannel(t.slack.question), q: sm.intake || t.slack.question || '협업채널 문의', a: '', method: mth, status: t.done || sm.resolved ? '완료' : '처리중',
       route: '협업채널', cx: '', toss: t, csOwner: '', csAction: '', issue: null, remote: null, visit: null, doneAt: t.done || null, minutes: t.done ? (t.done - t.at) / 60000 : null });
   });
   CS_LAST = RECS.filter(r => r.src === 'cs' && !r.slackOnly).reduce((m, r) => r.date > m ? r.date : m, '');
@@ -1489,8 +1489,9 @@ const compress = t => {
 function tlItems(r) {
   if (r.viaCollab && r.toss) {
     const T = r.toss, sm = T.sum || {}, items = [], via = r.method === '현장 지원' ? '현장' : '원격';
-    items.push({ step: 1, label: `인입 · ${via}`, t: r.at, text: sm.intake || r.q, tag: '', full: [sm.intake || r.q, r.cat ? `문의유형: ${r.cat}` : '', `처리 방식: ${r.method}`].filter(Boolean).join('\n') });
-    const fu = sm.followup || (T.slack && T.slack.answer), fuT = T.lastAt || T.done;
+    const core = compress(T.slack && T.slack.question).replace(/^\d{1,2}\/\d{1,2}\s*/, '');
+    items.push({ step: 1, label: `인입 · ${via}`, t: r.at, text: sm.intake || `${core}${r.status === '완료' ? '. 최종 해결 후 토플로 공유 완료' : ''}`, tag: '', full: [sm.intake || r.q, r.cat ? `문의유형: ${r.cat}` : '', `처리 방식: ${r.method}`].filter(Boolean).join('\n') });
+    const ans = T.slack && T.slack.answer, fu = sm.followup || (ans ? (/[?？]\s*$/.test(ans) ? '토플 추가 확인 요청 · 이상 없음' : compress(ans)) : ''), fuT = T.lastAt || T.done;
     if (fu) items.push({ step: 4, label: '추가 공유', t: fuT && fuT - r.at >= 60000 ? fuT : null, text: fu, tag: sm.resolved ? '해결' : '', full: fu });
     return items;
   }
@@ -1591,7 +1592,8 @@ function recDetail(r) {
   const C = r.caseSum, stCls = s => /해결/.test(s) ? 'ok' : /이관/.test(s) ? 'purple' : /확인/.test(s) ? 'red' : 'warn';
   // 요약 한 줄: Claude 정리(증상 · 거친 대응 · 해결 방법) → 없으면 단계에서 만든 한 줄
   const hIts = tlItems(r), hMid = hIts.filter(x => x.step === 4).map(x => /토스/.test(x.label) ? '토플 이관' : /현장/.test(x.label) ? '현장 방문' : '').filter(Boolean);
-  const hRes = hIts.find(x => x.step === 5), headline = (C && C.headline) || [compress(r.q) || r.cat, ...hMid, hRes ? `${hRes.text}${/해결|정상/.test(hRes.text) ? '' : '로 해결'}` : '확인 중'].filter(Boolean).join(', ');
+  const hRes = hIts.find(x => x.step === 5), core = (r.viaCollab ? compress(r.toss && r.toss.slack && r.toss.slack.question) : compress(r.q)).replace(/^\d{1,2}\/\d{1,2}\s*/, '').replace(/[.]\s*최종 해결 후.*$/, '') || r.cat;
+  const headline = String((C && C.headline) || [core, ...(hRes && !r.viaCollab ? hMid : []), hRes && !r.viaCollab && hRes.text !== '처리 결과 기록 없음' ? `${hRes.text}${/해결|정상/.test(hRes.text) ? '' : '로 해결'}` : ''].filter(Boolean).join(', ')).replace(/[,·]?\s*(확인\s*중|진행\s*중|대기\s*중)$/, '');
   const doneTag = r.status === '완료' ? '해결' : /이관|토플/.test(r.status) ? '이관' : '진행 중';
   const fixBtn = C && /해결/.test(C.state || '') && VIEWER.internal && mode !== 'share' ? `<button class="btn sm" style="margin-left:auto" data-casefix="${esc(r.caseKey)}" data-v="${r.caseFix === '해제' ? '적용' : '해제'}" title="${r.statusByCase ? `콜라비 상태(${esc(r.statusRaw)}) 대신 기록으로 완료 처리` : ''}">${r.caseFix === '해제' ? '완료 판단 다시 적용' : '완료 판단 해제'}</button>` : '';
   const sumHtml = `<div class="case-sum"><div class="cs-head"><span class="tag ${stCls(doneTag)}">${esc(doneTag)}</span><b>${esc(headline)}</b>${fixBtn}</div></div>`;
