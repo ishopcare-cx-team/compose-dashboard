@@ -966,14 +966,15 @@ function buildModel(raw) {
     if (!asked || STORE_EXCLUDE.test(t.store || '') || TEST_TEXT.test(t.question || '') || (!keys.length && !composeText(t.question))) return;
     let best = null, bestDiff = Infinity;
     RECS.forEach(r => { if (r.src !== 'cs' || !keys.includes(r.skey)) return; const d = Math.abs(asked - r.at); if (d <= 864e5 && d < bestDiff && !(r.toss && r.toss.slack)) { best = r; bestDiff = d; } });
-    const info = { asked, done: done || (t.status === '회신' ? asked : null), slack: { question: t.question, answer: t.answer, status: t.status, channel: t.channel || '고객센터-플레이스' } };
+    const info = { asked, done: done || (t.status === '회신' ? asked : null), sum: t.sum || null, lastAt: P(t.lastAt), slack: { question: t.question, answer: t.answer, status: t.status, channel: t.channel || '고객센터-플레이스' } };
     if (best) { best.toss = Object.assign({}, best.toss || {}, info, { asked: (best.toss && best.toss.asked) || asked, done: (best.toss && best.toss.done) || info.done }); tossLinked++; }
     else { const st = SM[keys[0]]; TOSS_ONLY.push(Object.assign({ id: `토플-${t.date.slice(2).replace(/-/g, '.')}-${pad(n + 1)}`, at: asked, date: ymd(asked), store: st ? st.name : t.store, skey: keys[0] || '' }, info)); }
   });
   TOSS_ONLY.filter(t => t.slack && t.slack.channel === '협업채널' && t.skey).forEach(t => {
     t.asRec = true;
-    orphans.push({ id: `${t.date.slice(2).replace(/-/g, '.')}-C${hm(t.at).replace(':', '')}`, src: 'oc', inflow: '원격팀', side: '원격', viaCollab: true, at: t.at, date: t.date, store: t.store, skey: t.skey,
-      cat: '협업채널 문의', channel: guessChannel(t.slack.question), q: t.slack.question || '협업채널 문의', a: '', method: '토스플레이스 확인', status: t.done ? '완료' : '처리중',
+    const sm = t.sum || {}, mth = { '현장 지원': '현장 지원', '원격 지원': '원격지원', 'CS 안내': 'CS안내', '토스플레이스 확인': '토스플레이스 확인' }[sm.method] || '토스플레이스 확인';
+    orphans.push({ id: `${t.date.slice(2).replace(/-/g, '.')}-C${hm(t.at).replace(':', '')}`, src: 'oc', inflow: mth === '현장 지원' ? '현장' : '원격팀', side: '원격', viaCollab: true, at: t.at, date: t.date, store: t.store, skey: t.skey,
+      cat: sm.category || '협업채널 문의', channel: guessChannel(t.slack.question), q: sm.intake || t.slack.question || '협업채널 문의', a: '', method: mth, status: t.done || sm.resolved ? '완료' : '처리중',
       route: '협업채널', cx: '', toss: t, csOwner: '', csAction: '', issue: null, remote: null, visit: null, doneAt: t.done || null, minutes: t.done ? (t.done - t.at) / 60000 : null });
   });
   CS_LAST = RECS.filter(r => r.src === 'cs' && !r.slackOnly).reduce((m, r) => r.date > m ? r.date : m, '');
@@ -1280,10 +1281,10 @@ const tossWait = r => r.toss && r.toss.done && r.toss.asked && r.toss.done - r.t
 function stats(rows) {
   const done = rows.filter(r => r.status === '완료');
   return { total: rows.length, cs: rows.filter(r => r.side === 'CS').length, oc: rows.filter(r => r.side === '원격').length, os: rows.filter(r => r.side === 'OS').length, done: done.length, open: rows.length - done.length,
-    mCs: rows.filter(r => r.method === 'CS안내').length, mRemote: rows.filter(r => r.method === '원격지원').length, mVisit: rows.filter(r => r.method === '방문점검').length, mEtc: rows.filter(r => !['CS안내', '원격지원', '방문점검', '토스플레이스 확인'].includes(r.method)).length,
+    mCs: rows.filter(r => r.method === 'CS안내').length, mRemote: rows.filter(r => r.method === '원격지원').length, mVisit: rows.filter(r => r.method === '방문점검').length, mField: rows.filter(r => r.method === '현장 지원').length, mEtc: rows.filter(r => !['CS안내', '원격지원', '방문점검', '토스플레이스 확인', '현장 지원'].includes(r.method)).length,
     remoteAll: rows.filter(r => r.method === '원격지원').length, mToss: rows.filter(r => r.method === '토스플레이스 확인').length, linked: rows.filter(r => r.remote && r.remote.linked && r.src === 'cs').length,
-    avgMin: avg(done.filter(r => r.method !== '방문점검' && !r.visit && !r.toss && r.minutes != null).map(r => r.minutes)),
-    medMin: median(done.filter(r => r.method !== '방문점검' && !r.visit && !r.toss && r.minutes != null).map(r => r.minutes)),
+    avgMin: avg(done.filter(r => !['방문점검', '현장 지원'].includes(r.method) && !r.visit && !r.toss && r.minutes != null).map(r => r.minutes)),
+    medMin: median(done.filter(r => !['방문점검', '현장 지원'].includes(r.method) && !r.visit && !r.toss && r.minutes != null).map(r => r.minutes)),
     medToss: median(rows.map(tossWait).filter(v => v != null)),
     medWait: median(rows.map(remoteWait).filter(v => v != null)),
     avgWait: avg(rows.map(remoteWait).filter(v => v != null)), avgToss: avg(rows.map(tossWait).filter(v => v != null)),
@@ -1326,9 +1327,9 @@ function hourChart(rows) {
   return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="시간대별 상담 건수">${g}</svg></div>`;
 }
 function methodStack(s) {
-  const t = s.mCs + s.mRemote + s.mVisit + (s.mToss || 0) + (s.mEtc || 0) || 1, seg = (n, c, l) => n ? `<div style="flex:${n};background:var(${c})" data-tip="<b>${n}건</b> · ${l} ${(n / t * 100).toFixed(0)}%">${n / t > .09 ? (n / t * 100).toFixed(0) + '%' : ''}</div>` : '';
-  return `<div class="stack">${seg(s.mCs, '--s1', 'CS안내')}${seg(s.mRemote, '--s2', '원격지원')}${seg(s.mVisit, '--s3', '방문점검')}${seg(s.mToss || 0, '--purple', '토플 단독')}${seg(s.mEtc || 0, '--gray2', '기타')}</div>
-    <div class="legend"><span><i style="background:var(--s1)"></i>CS안내 ${num(s.mCs)}건</span><span><i style="background:var(--s2)"></i>원격지원 ${num(s.mRemote)}건</span><span><i style="background:var(--s3)"></i>방문점검 ${num(s.mVisit)}건</span>${s.mToss ? `<span><i style="background:var(--purple)"></i>토플 단독 ${num(s.mToss)}건</span>` : ''}${s.mEtc ? `<span><i style="background:var(--gray2)"></i>기타 ${num(s.mEtc)}건</span>` : ''}</div>`;
+  const t = s.mCs + s.mRemote + s.mVisit + (s.mField || 0) + (s.mToss || 0) + (s.mEtc || 0) || 1, seg = (n, c, l) => n ? `<div style="flex:${n};background:var(${c})" data-tip="<b>${n}건</b> · ${l} ${(n / t * 100).toFixed(0)}%">${n / t > .09 ? (n / t * 100).toFixed(0) + '%' : ''}</div>` : '';
+  return `<div class="stack">${seg(s.mCs, '--s1', 'CS안내')}${seg(s.mRemote, '--s2', '원격지원')}${seg(s.mVisit, '--s3', '방문점검')}${seg(s.mField || 0, '--green', '현장 지원')}${seg(s.mToss || 0, '--purple', '토플 단독')}${seg(s.mEtc || 0, '--gray2', '기타')}</div>
+    <div class="legend"><span><i style="background:var(--s1)"></i>CS안내 ${num(s.mCs)}건</span><span><i style="background:var(--s2)"></i>원격지원 ${num(s.mRemote)}건</span><span><i style="background:var(--s3)"></i>방문점검 ${num(s.mVisit)}건</span>${s.mField ? `<span><i style="background:var(--green)"></i>현장 지원 ${num(s.mField)}건</span>` : ''}${s.mToss ? `<span><i style="background:var(--purple)"></i>토플 단독 ${num(s.mToss)}건</span>` : ''}${s.mEtc ? `<span><i style="background:var(--gray2)"></i>기타 ${num(s.mEtc)}건</span>` : ''}</div>`;
 }
 const storeName = k => (SM[k] || {}).name || k;
 
@@ -1472,9 +1473,16 @@ function flowHtml(steps) {
 }
 // 인입 현황 타임라인: ① 인입 ② 1차 확인 · 안내 ③ 원격 지원 요청 ④ 원격 2차 처리(해결) 또는 토스플레이스 이관 ⑤ 최종 완료. 시각은 초까지.
 // 타임라인 글: 첫 문장만 70자 안으로(다듬은 한 줄이 있으면 그것)
-const brief = (t, n = 70) => { const c = cleanText(t, 400); const m = c.match(/^.+?(?:다|요|음|함|됨|임)[.!?]?(?=\s|$)/); return cleanText(m ? m[0] : c, n); };
+const brief = (t, n = 70) => { const c = cleanText(t, 400); if (c.length <= n) return c; const m = c.match(/^.+?(?:다|요|음|함|됨|임)[.!?]?(?=\s|$)/); return cleanText(m ? m[0] : c, n); };
 // 타임라인 단계: text = 간략 타임라인용(첫 문장), full = 아래 가로 카드용(상담 내역 기준 상세, 오타 · 기호는 다듬은 글/정리로 제거)
 function tlItems(r) {
+  if (r.viaCollab && r.toss) {
+    const T = r.toss, sm = T.sum || {}, items = [], via = r.method === '현장 지원' ? '현장' : '원격';
+    items.push({ step: 1, label: `인입 · ${via}`, t: r.at, text: sm.intake || r.q, tag: '', full: [sm.intake || r.q, r.cat ? `문의유형: ${r.cat}` : '', `처리 방식: ${r.method}`].filter(Boolean).join('\n') });
+    const fu = sm.followup || (T.slack && T.slack.answer), fuT = T.lastAt || T.done;
+    if (fu) items.push({ step: 4, label: '추가 공유', t: fuT && fuT - r.at >= 60000 ? fuT : null, text: fu, tag: sm.resolved ? '해결' : '', full: fu });
+    return items;
+  }
   const S = r.slack || {}, R = r.remote, T = r.toss, V = r.visit, items = [];
   const add = (step, label, t, text, tag, full) => items.push({ step, label, t: t || null, text: text || '', tag: tag || '', full: full || text || '' });
   const via = r.inflow === 'OS' ? 'OS' : r.src === 'oc' ? (r.cxHandoff ? 'CX' : r.remote ? '원격' : '현장') : r.inflow === '콜라비' ? 'CX' : r.inflow === '법인폰·수기' ? '법인폰' : r.inflow || 'CX';
@@ -1509,8 +1517,13 @@ function recTimeline(r) {
 }
 // 아래 토글: 타임라인 단계별 가로 카드(카드마다 다른 파스텔 단색), 상세 글은 줄 단위로
 function tlCards(r) {
-  const items = tlItems(r);
-  return `<details class="cs-steps"><summary>처리 현황 보기</summary><div class="tlc">${items.map((x, i) => `${i ? '<div class="tlc-arrow">→</div>' : ''}<div class="tlc-card pc${i % 6}"><div class="tlc-h">${esc(x.label)}${x.tag ? ` <span class="tag ${tlTagCls(x.tag)}">${esc(x.tag)}</span>` : ''}</div><div class="tlc-t">${esc(x.t ? dts(x.t) : '시각 기록 없음')}</div>${String(x.full || '').split('\n').filter(Boolean).map(l => `<p>${esc(cleanText(l, 400))}</p>`).join('')}</div>`).join('')}</div></details>`;
+  let items = tlItems(r);
+  const st = r.viaCollab && r.toss && r.toss.sum && r.toss.sum.steps;
+  if (st && st.length) {
+    const at = t => { const m = String(t || '').match(/(?:(\d{2})-(\d{2})\s+)?(\d{1,2}):(\d{2})/); if (!m) return null; const d = new Date(r.at); if (m[1]) d.setMonth(+m[1] - 1, +m[2]); d.setHours(+m[3], +m[4], 0, 0); return d; };
+    items = st.map((e, i) => ({ step: 3, label: e.what, t: at(e.t), text: '', tag: i === st.length - 1 && r.toss.sum.resolved ? '해결' : '', full: '' }));
+  }
+  return `<details class="cs-steps"><summary>처리 현황 보기</summary><div class="tlc">${items.map((x, i) => `${i ? '<div class="tlc-arrow">→</div>' : ''}<div class="tlc-card pc${i % 6}"><div class="tlc-h">${esc(x.label)}${x.tag ? ` <span class="tag ${tlTagCls(x.tag)}">${esc(x.tag)}</span>` : ''}</div><div class="tlc-t">${esc(x.t ? dts(x.t).replace(/:00$/, '') : '시각 기록 없음')}</div>${String(x.full || '').split('\n').filter(Boolean).map(l => `<p>${esc(cleanText(l, 400))}</p>`).join('')}</div>`).join('')}</div></details>`;
 }
 function recDetail(r) {
   const steps = [], done = r.status === '완료';
@@ -1761,7 +1774,7 @@ const PROC = [
   { key: 'menu', name: '메뉴등록', color: '#00c7be' }, { key: 'terminate', name: '해지·철거', color: '#8e8e93' }, { key: 'toss', name: '토스플레이스 확인', color: '#3182f6' }];
 const PROC_BY = Object.fromEntries(PROC.map(p => [p.key, p]));
 function procOf(r) {
-  if (r.visit || r.method === '방문점검') return 'visit';
+  if (r.visit || r.method === '방문점검' || r.method === '현장 지원') return 'visit';
   const c = r.cat || '';
   if (/명의\s*변경|양도|양수/.test(c)) return 'transfer';
   if (/세금계산서/.test(c)) return 'tax';
