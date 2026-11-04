@@ -444,6 +444,7 @@
   .pc0{--pc:#e8f0fe} .pc1{--pc:#fff1e0} .pc2{--pc:#e6f6ec} .pc3{--pc:#f1ebfd} .pc4{--pc:#fde9ef} .pc5{--pc:#e5f6f6}
   @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .pc0{--pc:#1f2a3d} :root:not([data-theme="light"]) .pc1{--pc:#3a2c1a} :root:not([data-theme="light"]) .pc2{--pc:#1c3226} :root:not([data-theme="light"]) .pc3{--pc:#2c2540} :root:not([data-theme="light"]) .pc4{--pc:#3a2229} :root:not([data-theme="light"]) .pc5{--pc:#1c3333} }
   :root[data-theme="dark"] .pc0{--pc:#1f2a3d} :root[data-theme="dark"] .pc1{--pc:#3a2c1a} :root[data-theme="dark"] .pc2{--pc:#1c3226} :root[data-theme="dark"] .pc3{--pc:#2c2540} :root[data-theme="dark"] .pc4{--pc:#3a2229} :root[data-theme="dark"] .pc5{--pc:#1c3333}
+  .tag.in-os{background:#e6f6f6; color:#0f766e}
   .rec-link{display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:10px; padding:10px 12px; border:1px solid var(--line); border-radius:12px; background:var(--canvas); font-size:13px}
   .rec-link .rl-k{font-size:11.5px; font-weight:800; color:var(--accent)} .rec-link .rl-t{flex:1 1 220px; min-width:0; color:var(--gray)} .rec-link .btn{margin-left:auto}
   .cs-tl{list-style:none; margin:0; padding:0 0 0 12px; border-left:2px solid var(--line); display:flex; flex-direction:column; gap:6px}
@@ -751,7 +752,7 @@ const HC_DEFAULT = [
   ['추가 불편 확인', '', ['그 외에 장비를 사용하시면서 불편했거나 도움이 필요한 부분이 있으신가요?']]
 ].map(([title, detail, lines], i) => ({ number: '①②③④⑤'[i], title, detail, lines }));
 // 실시간 인입의 인입 채널: 슬랙 '출처'(법인폰 · 워크플로 등) → 상담 인입 경로 → 콜라비 순으로 정합니다.
-const INFLOWS = ['콜라비', '원격팀', '법인폰·수기', '현장'];
+const INFLOWS = ['콜라비', '원격팀', '법인폰·수기', 'OS', '현장'];
 // 슬랙 AI 분석의 예전 장비·채널 값 → 지금 이름(CS 리포트 ISSUE.CHANNEL_RENAMES와 같음)
 const CH_RENAMES = { '포스': '포스(PC,포스기)', 'pos': '포스(PC,포스기)', 'POS': '포스(PC,포스기)', '주방프린터': '프린터' };
 // 연결 규칙: 원격 AS는 상담 후 LINK_AS_DAYS일 안, 현장 방문은 LINK_VISIT_DAYS일 안의 같은 매장 상담에 붙입니다.
@@ -801,6 +802,7 @@ function guessChannel(text) {
 /* ================================================================ 모델 만들기 */
 // 사람 이름 통일: '동욱' → '김동욱'(원격팀 명단), 괄호 뒤 문구 제거
 let PEOPLE = {}, OC_NAMES = new Set();
+const teamOf = t => { t = String(t || ''); return /offline\s*sales|오프라인|(^|[\s_\-(])OS([\s_\-)]|$)/i.test(t) ? 'OS' : /(^|[\s_\-(])CX([\s_\-)]|$)/i.test(t) ? 'CX' : /(^|[\s_\-(])OC([\s_\-)]|$)|원격/i.test(t) ? 'OC' : ''; };
 function fullName(n) {
   const t = String(n || '').replace(/\s*[(（\[].*$/, '').replace(/[)）\]]/g, '').trim();
   if (!t) return '';
@@ -905,7 +907,7 @@ function buildModel(raw) {
   let asLinked = 0;
   asRecs.forEach(a => {
     const k = skey(a.store || a.branch);
-    const remote = { requester: a.requester || '', owner: fullName(a.emp), start: a.at, req: a.req, action: a.note, intake: a.intake, status: a.status, cat: a.cat || 'as', linked: true,
+    const remote = { requesterTeam: a.requesterTeam || '', requester: a.requester || '', owner: fullName(a.emp), start: a.at, req: a.req, action: a.note, intake: a.intake, status: a.status, cat: a.cat || 'as', linked: true,
       ackBy: a.ackBy || '', ackAt: P(a.ackAt), startBy: a.startBy || '', startAt: P(a.startAt), result: a.result || '', resultAt: P(a.resultAt) };
     const byTf = a.tfTs ? RECS.find(x => x.src === 'cs' && !(x.remote && x.remote.linked) && x.slack && String(x.slack.link || '').includes('p' + a.tfTs.replace('.', ''))) : null;
     // 매장명이 없는 원격 요청(원격지원 요청 워크플로): 앞뒤 10분 안 원격지원 상담 중 가장 가까운 것에 붙임
@@ -913,7 +915,7 @@ function buildModel(raw) {
     const c = byTf || byTime || nearest(k, a.at, LINK.AS_EARLY_MIN, LINK.AS_DAYS, x => x.src === 'cs' && !(x.remote && x.remote.linked), x => x.method === '원격지원' || x.method === '방문점검', x => sameDevice(x.channel, `${a.req} ${a.note}`) ? 0 : 240);
     if (c) { c.remote = Object.assign(remote, { handoff: c.at }); asLinked++; }
     // 콜라비(상담 내역)와 대조해 같은 매장 상담 이력이 없으면 원격팀 자체 인입입니다. 단, CX 이관 표시(컴포즈 이모지)가 있으면 CX 인입(콜라비)입니다.
-    else ocRec({ id: orphanId(`${a.date.slice(2).replace(/-/g, '.')}-R${hm(a.at).replace(':', '')}`), inflow: a.cx ? '콜라비' : '원격팀', cxHandoff: !!a.cx, unlinked: true, store: a.store || a.branch || '매장 미기재', at: a.at, channel: guessChannel(`${a.req} ${a.note}`),
+    else ocRec({ id: orphanId(`${a.date.slice(2).replace(/-/g, '.')}-R${hm(a.at).replace(':', '')}`), cat: '기기(기능) 오류 · 원격 지원', inflow: teamOf(a.requesterTeam) === 'OS' ? 'OS' : a.cx || teamOf(a.requesterTeam) === 'CX' ? '콜라비' : '원격팀', cxHandoff: !!a.cx, unlinked: true, store: a.store || a.branch || '매장 미기재', at: a.at, channel: guessChannel(`${a.req} ${a.note}`),
       q: a.req, a: '', method: '원격지원', status: a.status === 'done' ? '완료' : '처리중', remote: Object.assign(remote, { handoff: null }) });
     const st = SM[k]; if (st) st.events.push({ date: a.date, type: 'AS', src: '원격', text: [a.req, a.note].filter(Boolean).join(' → '), by: a.emp, items: mentionItems(`${a.req} ${a.note}`), rec: c ? c.id : null });
   });
@@ -996,7 +998,7 @@ function buildModel(raw) {
   const CX_NAMES = new Set(RECS.filter(r => r.src === 'cs' && !r.slackOnly && r.cx).map(r => fullName(r.cx)));
   RECS.forEach(r => {
     if (r.src === 'cs') r.side = r.slackOnly && OC_NAMES.has(fullName(r.cx)) && !CX_NAMES.has(fullName(r.cx)) ? '원격' : 'CS';
-    else r.side = r.cxHandoff || (r.remote && r.remote.requester && CX_NAMES.has(fullName(r.remote.requester))) ? 'CS' : '원격';
+    else r.side = r.inflow === 'OS' ? 'OS' : r.cxHandoff || (r.remote && (teamOf(r.remote.requesterTeam) === 'CX' || (r.remote.requester && CX_NAMES.has(fullName(r.remote.requester))))) ? 'CS' : '원격';
   });
   // 처리 방식 우선순위: 현장 방문 > 원격 기록 > 상담 내역 처리 방식. 카드 · 막대 · 처리 내역이 모두 이 값을 씁니다.
   RECS.forEach(r => { if (r.method === 'CS안내' && r.remote && r.remote.linked) { r.methodRaw = r.method; r.method = '원격지원'; } });
@@ -1256,7 +1258,7 @@ let hcType = 'new';
 const src = k => k === 'oc' ? '<span class="src-tag src-oc">원격</span>' : k === 'both' ? '<span class="src-tag src-both">CS+원격</span>' : '<span class="src-tag src-cs">CS</span>';
 const statusBadge = s => `<span class="badge ${/^완료/.test(s) ? 'b-done' : /^확인중/.test(s) ? 'b-toss' : 'b-open'}">${esc(s)}</span>`;
 const methodBadge = m => `<span class="badge b-gray ${m === 'CS안내' ? 'm-cs' : m === '원격지원' ? 'm-remote' : m === '방문점검' ? 'm-visit' : ''}">${esc(m)}</span>`;
-const inflowTag = v => `<span class="tag ${v === '콜라비' ? 'in-cs' : v === '원격팀' ? 'in-oc' : v === '현장' ? 'in-vs' : 'in-etc'}">${esc(v || '—')}</span>`;
+const inflowTag = v => `<span class="tag ${v === '콜라비' ? 'in-cs' : v === '원격팀' ? 'in-oc' : v === '현장' ? 'in-vs' : v === 'OS' ? 'in-os' : 'in-etc'}">${esc(v || '—')}</span>`;
 const stage = r => r.status === '완료' ? '완료' : r.toss && !r.toss.done ? '토스플레이스 확인중' : r.visit && r.visit.pending ? '방문 예정' : r.remote && !r.remote.start ? '원격 대기' : r.remote ? '원격 진행 중' : '상담 처리중';
 const tile = (name, val, unit, sub, opt = {}) => `<div class="ov-tile ${opt.grand ? 'grand' : ''}" style="${opt.c ? '--c:' + opt.c : ''}"><div class="ov-name">${name}${opt.src ? `<span style="margin-left:auto">${opt.src}</span>` : ''}</div><div class="ov-val">${val}<small>${unit}</small></div><div class="ov-sub">${sub}</div></div>`;
 const hbars = (rows, max) => rows.map(([k, v, extra]) => `<div class="hbar"><div class="nm" title="${esc(k)}">${esc(k)}</div><div class="tr"><div class="fl" style="width:${max ? v / max * 100 : 0}%${v ? '' : ';min-width:0'}"></div></div><div class="v"><b>${num(v)}</b>건${extra ? ' · ' + extra : ''}</div></div>`).join('');
@@ -1277,7 +1279,7 @@ const median = a => { if (!a.length) return null; const b = a.slice().sort((x, y
 const tossWait = r => r.toss && r.toss.done && r.toss.asked && r.toss.done - r.toss.asked >= 60000 ? (r.toss.done - r.toss.asked) / 60000 : null;
 function stats(rows) {
   const done = rows.filter(r => r.status === '완료');
-  return { total: rows.length, cs: rows.filter(r => r.side === 'CS').length, oc: rows.filter(r => r.side === '원격').length, done: done.length, open: rows.length - done.length,
+  return { total: rows.length, cs: rows.filter(r => r.side === 'CS').length, oc: rows.filter(r => r.side === '원격').length, os: rows.filter(r => r.side === 'OS').length, done: done.length, open: rows.length - done.length,
     mCs: rows.filter(r => r.method === 'CS안내').length, mRemote: rows.filter(r => r.method === '원격지원').length, mVisit: rows.filter(r => r.method === '방문점검').length, mEtc: rows.filter(r => !['CS안내', '원격지원', '방문점검', '토스플레이스 확인'].includes(r.method)).length,
     remoteAll: rows.filter(r => r.method === '원격지원').length, mToss: rows.filter(r => r.method === '토스플레이스 확인').length, linked: rows.filter(r => r.remote && r.remote.linked && r.src === 'cs').length,
     avgMin: avg(done.filter(r => r.method !== '방문점검' && !r.visit && !r.toss && r.minutes != null).map(r => r.minutes)),
@@ -1386,7 +1388,7 @@ function viewOverview() {
   let h = filterBar('overview', RECS.filter(r => inPeriod(r.at)), tags, rows.length);
   // 공유용도 내부용과 같은 카드 · 차트 · 문구를 씁니다(데이터는 이름 가림 · 정제 문장). 담당자별 처리처럼 사람 이름이 나오는 운영 카드만 내부용에서만.
   h += `<div class="ov-tiles" style="--n:7">`
-    + tile('전체 접수', num(s.total), '건', `CS ${num(s.cs)} · 원격 ${num(s.oc)}<br>이전 대비 ${d >= 0 ? '+' : '−'}${num(Math.abs(d))}`, { grand: true })
+    + tile('전체 접수', num(s.total), '건', `CS ${num(s.cs)} · 원격 ${num(s.oc)}${s.os ? ` · OS ${num(s.os)}` : ''}<br>이전 대비 ${d >= 0 ? '+' : '−'}${num(Math.abs(d))}`, { grand: true })
     + tile('평균 해결 시간', fmtMin(s.avgMin), '', `중앙값 ${fmtMin(s.medMin)}<br>처리 완료 · 방문·토플 제외`)
     + tile('CS 해결', s.total ? (s.mCs / s.total * 100).toFixed(0) : 0, '%', `CS 즉시 해결 ${num(s.mCs)}건`, { src: src('cs'), c: 'var(--s1)' })
     + tile('원격 처리', num(s.remoteAll), '건', `상담 → 원격 착수<br>평균 ${fmtMin(s.avgWait)} · 중앙값 ${fmtMin(s.medWait)}`, { src: src('both'), c: 'var(--s2)' })
@@ -1475,7 +1477,7 @@ const brief = (t, n = 70) => { const c = cleanText(t, 400); const m = c.match(/^
 function tlItems(r) {
   const S = r.slack || {}, R = r.remote, T = r.toss, V = r.visit, items = [];
   const add = (step, label, t, text, tag, full) => items.push({ step, label, t: t || null, text: text || '', tag: tag || '', full: full || text || '' });
-  const via = r.src === 'oc' ? (r.remote ? '원격' : '현장') : r.inflow === '콜라비' ? 'CX' : r.inflow === '법인폰·수기' ? '법인폰' : r.inflow || 'CX';
+  const via = r.inflow === 'OS' ? 'OS' : r.src === 'oc' ? (r.cxHandoff ? 'CX' : r.remote ? '원격' : '현장') : r.inflow === '콜라비' ? 'CX' : r.inflow === '법인폰·수기' ? '법인폰' : r.inflow || 'CX';
   add(1, `인입 · ${via}`, r.at, r.q || r.cat, '', [r.qFull || r.q, r.cat ? `문의유형: ${r.cat}` : '', r.channel ? `장비·채널: ${r.channel}` : ''].filter(Boolean).join('\n'));
   const said = new Set([brief(r.q || r.cat)]), uniq = t => { const b = brief(t); if (!b || said.has(b)) return ''; said.add(b); return b; };
   const first = P(S.firstAt);
