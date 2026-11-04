@@ -2006,6 +2006,8 @@ function showData(raw) {
   document.getElementById('csTime').textContent = raw.demo ? '가상' : `${raw.now.slice(5)} 읽음`;
   const u = raw.remote && raw.remote.updatedAt || {};
   document.getElementById('ocTime').textContent = raw.demo ? '가상' : u.as ? `${String(u.as).slice(5)} 갱신` : '—';
+  // 원격: 원격팀 파일 + 그 뒤 건은 슬랙 직접 수집(5분마다). 마우스를 올리면 원격팀 파일 시각도 보임.
+  document.getElementById('ocTime').title = raw.demo ? '' : u.asFile ? `원격팀 파일 ${u.asFile} 갱신 · 그 뒤 건은 슬랙 직접 수집(5분마다)` : '';
   render();
 }
 function load(fresh, silent) {
