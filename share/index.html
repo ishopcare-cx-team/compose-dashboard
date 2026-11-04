@@ -1535,16 +1535,18 @@ function recTimeline(r) {
   return `<ol class="rtl">${tlItems(r).map(x => `<li class="s${x.step}"><time>${esc(x.t ? dts(x.t) : '')}</time><div><b>${esc(x.label)}</b>${x.tag ? ` <span class="tag ${tlTagCls(x.tag)}">${esc(x.tag)}</span>` : ''}${x.text ? `<p>${esc(x.text)}</p>` : ''}</div></li>`).join('')}</ol>`;
 }
 // 아래 토글: 타임라인 단계별 가로 카드(카드마다 다른 파스텔 단색), 상세 글은 줄 단위로
-function tlCards(r) {
+function tlCards(r, proc) {
   let items = tlItems(r);
+  if (proc) { const act = items.filter(x => x.step >= 2); if (act.length) items = act; }
   const st = r.viaCollab && r.toss && r.toss.sum && r.toss.sum.steps;
   if (st && st.length) {
     const at = t => { const m = String(t || '').match(/(?:(\d{2})-(\d{2})\s+)?(\d{1,2}):(\d{2})/); if (!m) return null; const d = new Date(r.at); if (m[1]) d.setMonth(+m[1] - 1, +m[2]); d.setHours(+m[3], +m[4], 0, 0); return d; };
     items = st.map((e, i) => ({ step: 3, label: e.what, t: at(e.t), text: '', tag: i === st.length - 1 && r.toss.sum.resolved ? '해결' : '', full: '' }));
   }
-  return `<details class="cs-steps"><summary>처리 현황 보기</summary><div class="tlc">${items.map((x, i) => `${i ? '<div class="tlc-arrow">→</div>' : ''}<div class="tlc-card pc${i % 6}"><div class="tlc-h">${esc(x.label)}${x.tag ? ` <span class="tag ${tlTagCls(x.tag)}">${esc(x.tag)}</span>` : ''}</div><div class="tlc-t">${esc(x.t ? dts(x.t).replace(/:00$/, '') : '시각 기록 없음')}</div>${String(x.full || '').split('\n').filter(Boolean).map(l => `<p>${esc(cleanText(l, 400))}</p>`).join('')}</div>`).join('')}</div></details>`;
+  const cards = `<div class="tlc">${items.map((x, i) => `${i ? '<div class="tlc-arrow">→</div>' : ''}<div class="tlc-card pc${i % 6}"><div class="tlc-h">${esc(x.label)}${x.tag ? ` <span class="tag ${tlTagCls(x.tag)}">${esc(x.tag)}</span>` : ''}</div><div class="tlc-t">${esc(x.t ? dts(x.t).replace(/:00$/, '') : '시각 기록 없음')}</div>${String(x.full || '').split('\n').filter(Boolean).map(l => `<p>${esc(cleanText(l, 400))}</p>`).join('')}</div>`).join('')}</div>`;
+  return proc ? cards : `<details class="cs-steps"><summary>처리 현황 보기</summary>${cards}</details>`;
 }
-function recDetail(r) {
+function recDetail(r, proc) {
   const steps = [], done = r.status === '완료';
   const inName = r.src === 'oc' ? (r.cxHandoff ? 'CX 이관' : r.remote ? '원격팀 접수' : '현장 접수') : `${r.inflow || 'CX'} 인입`;
   if (r.prevRec) { const p = r.prevRec; steps.push({ name: '이전 건', color: 'var(--gray2)', t: p.at, time: `${dt(p.at).slice(5)} · ${p.id}`, who: '', text: p.q || p.cat, sub: [p.remote && p.remote.action, p.status].filter(Boolean).join(' · '), subLabel: '결과 ', badge: '재인입' }); }
@@ -1599,7 +1601,7 @@ function recDetail(r) {
   const fixBtn = C && /해결/.test(C.state || '') && VIEWER.internal && mode !== 'share' ? `<button class="btn sm" style="margin-left:auto" data-casefix="${esc(r.caseKey)}" data-v="${r.caseFix === '해제' ? '적용' : '해제'}" title="${r.statusByCase ? `콜라비 상태(${esc(r.statusRaw)}) 대신 기록으로 완료 처리` : ''}">${r.caseFix === '해제' ? '완료 판단 다시 적용' : '완료 판단 해제'}</button>` : '';
   const sumHtml = `<div class="case-sum"><div class="cs-head"><span class="tag ${stCls(doneTag)}">${esc(doneTag)}</span><b>${esc(headline)}</b>${fixBtn}</div></div>`;
   const raw = r.tidy && VIEWER.internal && mode !== 'share' ? `<details class="raw-text"><summary>원문 보기</summary><div><b>문의</b> ${esc(r.qRaw || '—')}</div><div><b>안내</b> ${esc(r.aRaw || '—')}</div></details>` : '';
-  return `<div class="flow"><div class="facts">${chips.map(([v, k]) => `<span>${k} <b>${esc(v)}</b></span>`).join('')}${r.slackOnly ? '<span class="tag warn">상담 내역 입력 전 · 슬랙 기준</span>' : ''}${r.src === 'oc' && CS_LAST && r.date > CS_LAST ? '<span class="tag warn">콜라비 입력 전일 수 있음</span>' : ''}${r.slack && r.slack.link ? `<a class="link internal" href="${esc(r.slack.link)}" target="_blank" rel="noopener">슬랙에서 보기 ↗</a>` : ''}</div>${sumHtml}${recTimeline(r)}${tlCards(r)}${raw}</div>`;
+  return `<div class="flow"><div class="facts">${chips.map(([v, k]) => `<span>${k} <b>${esc(v)}</b></span>`).join('')}${r.slackOnly ? '<span class="tag warn">상담 내역 입력 전 · 슬랙 기준</span>' : ''}${r.src === 'oc' && CS_LAST && r.date > CS_LAST ? '<span class="tag warn">콜라비 입력 전일 수 있음</span>' : ''}${r.slack && r.slack.link ? `<a class="link internal" href="${esc(r.slack.link)}" target="_blank" rel="noopener">슬랙에서 보기 ↗</a>` : ''}</div>${sumHtml}${proc ? tlCards(r, true) : recTimeline(r) + tlCards(r)}${raw}</div>`;
 }
 function viewRecords() {
   const scoped = RECS.filter(r => inPeriod(r.at)), rows = recFilter('records', scoped, REC_TAGS), s = stats(rows), p = paged('records', rows, 30);
@@ -1831,7 +1833,7 @@ function visitOnlyCard(v) {
 }
 // 처리 내역 상세: 타임라인 대신 현상 · 처리 과정 · 결과 · 알게 된 원인
 function procDetail(x) {
-  if (x.rec) return recDetail(x.rec);
+  if (x.rec) return recDetail(x.rec, true);
   const r = x.rec, C = (r && r.caseSum) || {}, R = r && r.remote, T = r ? r.toss : x.tossOnly, V = r ? r.visit : x.visit;
   const issue = C.issue || (r ? r.q : (T && T.slack && T.slack.question) || (V ? `현장 ${V.kind} 요청 · ${V.equip || ''}` : ''));
   const steps = [];
@@ -1846,7 +1848,7 @@ function procDetail(x) {
     + (r ? `<div class="hint" style="margin-top:4px">시각별 흐름은 <button class="btn sm" data-gorec="${esc(r.id)}">인입 현황에서 보기 →</button></div>` : '');
 }
 function viewProcess() {
-  const all = RECS.map(r => ({ key: `rec:${r.id}`, id: r.id, at: (r.remote && r.remote.start) || (r.visit && r.visit.date) || r.at, store: r.store, proc: PROC_BY[procOf(r)].name, channel: r.channel, status: r.status,
+  const all = RECS.filter(r => r.remote || r.visit || r.toss || /원격|방문|현장/.test(r.method || '')).map(r => ({ key: `rec:${r.id}`, id: r.id, at: (r.remote && r.remote.start) || (r.visit && r.visit.date) || r.at, store: r.store, proc: PROC_BY[procOf(r)].name, channel: r.channel, status: r.status,
       owner: (r.visit && r.visit.by) || (r.remote && r.remote.owner) || r.cx || '', text: (r.caseSum && r.caseSum.result) || (r.slack && r.slack.action) || (r.remote && r.remote.action) || (r.visit && r.visit.action) || r.a || r.q, rec: r }))
     .concat(TOSS_ONLY.filter(t => !t.asRec).map(t => ({ key: `tos:${t.id}`, id: t.id, at: t.at, store: t.store, proc: '토스플레이스 확인', channel: guessChannel(t.slack.question), status: t.done ? '완료' : '확인중(토스플레이스)', owner: '', text: t.slack.question || '토스플레이스 문의', tossOnly: t })))
     .concat(VISIT_ONLY.map(v => ({ key: `vis:${v.id}`, id: v.id, at: v.at, store: v.store, proc: '현장방문', channel: guessChannel(v.equip), status: v.pending ? '예정' : '완료', owner: v.by || '', text: `현장 ${v.kind} · ${v.equip || ''}`, visit: v })))
@@ -1854,8 +1856,8 @@ function viewProcess() {
   const tags = [{ key: 'proc', label: '처리 구분', get: x => x.proc, order: PROC.map(p => p.name) }, { key: 'channel', label: '장비·채널', get: x => x.channel, order: CHANNELS },
     { key: 'status', label: '처리상태', get: x => x.status }, { key: 'owner', label: '담당', get: x => x.owner }];
   const rows = applyFilter('process', all, { store: x => x.store, text: x => [x.id, x.text, x.proc, x.owner].join(' '), tags }), p = paged('process', rows, 30), cur = flt('process').tags.proc;
-  let h = `<div class="notice"><span class="k">처리 구분</span><span class="t">원격팀 대시보드와 같은 8가지에 토스플레이스 확인을 더해 나눕니다. <b>원격팀 기록</b>은 원격팀 분류를, <b>CS 상담</b>은 상담유형(명의 변경 · 세금계산서 · 해지 · 온보딩 · 메뉴 등록)과 처리 방식(원격지원 · 방문점검)으로 정합니다. 그 밖의 CS 안내는 단순문의입니다. 칸을 누르면 그 구분만 봅니다.</span></div>`;
-  h += `<div class="proc-tiles">${PROC.map(pc => { const n = all.filter(x => x.proc === pc.name).length; return `<button class="proc-tile ${cur === pc.name ? 'on' : ''}" data-proc="${pc.name}" style="--c:${pc.color}"><span>${pc.name}</span><b>${num(n)}</b></button>`; }).join('')}</div>`;
+  let h = `<div class="notice"><span class="k">처리 구분</span><span class="t">CS 안내로 끝난 건은 빼고 <b>원격 · 현장 방문 · 토스플레이스</b>로 넘어간 건만 모읍니다. 처리일시는 처리를 시작한 시각이고, 상세는 처리 시작부터의 조치 단계입니다. 칸을 누르면 그 구분만 봅니다.</span></div>`;
+  h += `<div class="proc-tiles">${PROC.map(pc => { const n = all.filter(x => x.proc === pc.name).length; if (!n && cur !== pc.name) return ''; return `<button class="proc-tile ${cur === pc.name ? 'on' : ''}" data-proc="${pc.name}" style="--c:${pc.color}"><span>${pc.name}</span><b>${num(n)}</b></button>`; }).join('')}</div>`;
   h += `<div class="card"><div class="card-head"><h3>처리 내역</h3><span class="hint">${perLabel()} · 최신순 · 누르면 아래로 펼쳐짐</span></div>${filterBar('process', all, tags, rows.length, { closeAll: true })}
     <div class="tbl-scroll"><table class="mcard"><thead><tr><th>처리일시</th><th>처리 구분</th><th>매장</th><th>내용</th><th>장비·채널</th><th>담당</th><th>상태</th></tr></thead><tbody>
     ${p.rows.map(x => xrow(x.key, `<td style="white-space:nowrap">${dt(x.at).slice(5)}${caret(x.key)}</td><td>${procTag(PROC.find(pc => pc.name === x.proc).key)}</td><td style="white-space:nowrap"><b>${esc(x.store)}</b></td><td>${esc(String(x.text).slice(0, 80) || '—')}</td><td>${esc(x.channel)}</td><td style="white-space:nowrap">${esc(x.owner || '—')}</td><td>${statusBadge(x.status)}</td>`, 7, () => procDetail(x))).join('') || `<tr><td colspan="7">${empty('조건에 맞는 처리 내역이 없습니다.')}</td></tr>`}
@@ -2264,7 +2266,7 @@ function showError(e) { clearInterval(LOAD_TICK); const at = String(e && e.stack
 let LOAD_TICK = 0;
 
 const host = document.getElementById('viewHost');
-document.querySelectorAll('.view-tab').forEach(b => b.addEventListener('click', () => { document.body.classList.remove('side-open'); syncSide(); view = b.dataset.v; render(); window.scrollTo(0, 0); }));
+document.querySelectorAll('.view-tab').forEach(b => b.addEventListener('click', () => { document.body.classList.remove('side-open'); syncSide(); view = b.dataset.v; OPEN.clear(); render(); window.scrollTo(0, 0); }));
 document.getElementById('modeSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; mode = b.dataset.m; document.body.classList.toggle('share', mode === 'share'); document.querySelectorAll('#modeSeg button').forEach(x => { x.classList.toggle('on', x === b); x.classList.toggle('share', x === b && mode === 'share'); }); render(); });
 document.getElementById('ctlHost').addEventListener('click', e => { const b = e.target.closest('[data-s]'); if (b) { scope = b.dataset.s; Object.keys(PG).forEach(k => { PG[k] = 1; }); render(); } if (e.target.closest('#printBtn')) window.print(); });
 document.getElementById('ctlHost').addEventListener('change', e => { if (e.target.id === 'monthSel') { month = e.target.value; render(); } });
