@@ -1341,10 +1341,10 @@ function viewOverview() {
     return h;
   }
   h += `<div class="ov-tiles" style="--n:6">`
-    + tile('전체 접수', num(s.total), '건', `CS ${num(s.cs)} · 원격 ${num(s.oc)} · 이전 대비 ${d >= 0 ? '+' : '−'}${num(Math.abs(d))}`, { grand: true })
+    + tile('전체 접수', num(s.total), '건', `CS ${num(s.cs)} · 원격 ${num(s.oc)}<br>이전 대비 ${d >= 0 ? '+' : '−'}${num(Math.abs(d))}`, { grand: true })
     + tile('평균 해결 시간', fmtMin(s.avgMin), '', `CS 완료 기준 · 방문·토플 제외`, { src: src('cs') })
     + tile('CS 바로 해결', s.total ? (s.mCs / s.total * 100).toFixed(0) : 0, '%', `CS안내로 끝난 ${num(s.mCs)}건`, { src: src('cs'), c: 'var(--s1)' })
-    + tile('원격 처리', num(s.remoteAll), '건', `상담→원격 착수 평균 ${fmtMin(s.avgWait)}`, { src: src('both'), c: 'var(--s2)' })
+    + tile('원격 처리', num(s.remoteAll), '건', `상담→원격 착수<br>평균 ${fmtMin(s.avgWait)}`, { src: src('both'), c: 'var(--s2)' })
     + tile('방문 점검', num(s.mVisit), '건', `방문까지 평균 ${s.avgVisitDays == null ? '—' : s.avgVisitDays.toFixed(1) + '일'}`, { src: src('oc'), c: 'var(--s3)' })
     + tile('미해결 이슈', num(openIssues), '건', '통합 이슈 + 개선 요청', { src: src('cs'), c: 'var(--red)' }) + `</div>`;
   h += `<div class="grid2 grid-gap"><div class="card"><div class="card-head"><h3>일자별 처리 추이</h3><span class="hint">합계 ${num(s.total)}건 · 이전 기간 ${num(p.total)}건</span></div>${dailyChart(rows)}</div>`
