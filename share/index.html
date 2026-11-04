@@ -118,7 +118,12 @@
   .ov-tile{background:var(--canvas); border-radius:16px; padding:16px 18px; box-shadow:var(--shadow); border-left:4px solid var(--c,var(--accent-line))}
   .ov-tile .ov-name{font-size:14px; font-weight:600; color:var(--gray); display:flex; align-items:center; gap:6px}
   .ov-tile .ov-name{white-space:nowrap} .ov-tile .ov-name .src-tag{font-size:10.5px; padding:1px 5px}
-  .ov-tiles[style*="--n:7"] .ov-tile .ov-name{font-size:13px}
+  .ov-tiles[style*="--n:7"]{gap:10px}
+  .ov-tiles[style*="--n:7"] .ov-tile{padding:12px 13px; border-radius:14px; min-width:0}
+  .ov-tiles[style*="--n:7"] .ov-tile .ov-name{font-size:12.5px}
+  .ov-tiles[style*="--n:7"] .ov-tile .ov-val{font-size:24px; margin-top:7px; white-space:nowrap}
+  .ov-tiles[style*="--n:7"] .ov-tile .ov-val small{font-size:12.5px}
+  .ov-tiles[style*="--n:7"] .ov-tile .ov-sub{font-size:11px; margin-top:6px; line-height:1.5; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .ov-tile .ov-val{font-size:34px; font-weight:800; letter-spacing:-.03em; margin-top:9px; line-height:1}
   .ov-tile .ov-val small{font-size:15px; font-weight:600; color:var(--gray2); margin-left:3px}
   .ov-tile .ov-sub{font-size:12.5px; font-weight:600; margin-top:7px; color:var(--gray2)}
@@ -184,7 +189,7 @@
   .hbar{display:flex; align-items:center; gap:12px; padding:6px 4px; border-radius:9px}
   .hbar:hover{background:var(--surface2)}
   .hbar .nm{flex:0 0 132px; font-size:13.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-  .hb-wide .hbar .nm{flex:0 1 auto; max-width:62%; white-space:normal; overflow:visible} .hb-wide .hbar .tr{flex:1 1 90px; max-width:200px}
+  .hb-wide .hbar .nm{flex:0 0 168px; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis} .hb-wide .hbar .tr{flex:1 1 auto}
   .src-toss{background:#ede9fe; color:#6d28d9; border-color:#ddd6fe}
   .hbar .tr{flex:1; height:12px; background:var(--surface); border-radius:6px; overflow:hidden}
   .hbar .fl{height:100%; background:var(--bar); border-radius:0 4px 4px 0; min-width:4px}
@@ -1380,10 +1385,10 @@ function viewOverview() {
   // 공유용도 내부용과 같은 카드 · 차트 · 문구를 씁니다(데이터는 이름 가림 · 정제 문장). 담당자별 처리처럼 사람 이름이 나오는 운영 카드만 내부용에서만.
   h += `<div class="ov-tiles" style="--n:7">`
     + tile('전체 접수', num(s.total), '건', `CS ${num(s.cs)} · 원격 ${num(s.oc)}<br>이전 대비 ${d >= 0 ? '+' : '−'}${num(Math.abs(d))}`, { grand: true })
-    + tile('평균 해결 시간', fmtMin(s.avgMin), '', `중앙값 ${fmtMin(s.medMin)}<br>처리 완료 기준 · 방문·토플 이관 제외`)
+    + tile('평균 해결 시간', fmtMin(s.avgMin), '', `중앙값 ${fmtMin(s.medMin)}<br>처리 완료 · 방문·토플 제외`)
     + tile('CS 해결', s.total ? (s.mCs / s.total * 100).toFixed(0) : 0, '%', `CS 즉시 해결 ${num(s.mCs)}건`, { src: src('cs'), c: 'var(--s1)' })
     + tile('원격 처리', num(s.remoteAll), '건', `상담 → 원격 착수<br>평균 ${fmtMin(s.avgWait)} · 중앙값 ${fmtMin(s.medWait)}`, { src: src('both'), c: 'var(--s2)' })
-    + tile('토플 이관', num(s.toss), '건', `회신까지 평균 ${fmtMin(s.avgToss)}<br>중앙값 ${fmtMin(s.medToss)} · 대기 ${num(s.tossOpen)}건`, { src: '<span class="src-tag src-toss">토플</span>', c: 'var(--purple)' })
+    + tile('토플 이관', num(s.toss), '건', `평균 ${fmtMin(s.avgToss)}${s.tossOpen ? ` · 대기 ${num(s.tossOpen)}` : ''}<br>중앙값 ${fmtMin(s.medToss)}`, { src: '<span class="src-tag src-toss">토플</span>', c: 'var(--purple)' })
     + tile('방문 점검', num(s.mVisit), '건', `방문까지 평균 ${s.avgVisitDays == null ? '—' : s.avgVisitDays.toFixed(1) + '일'}`, { src: src('oc'), c: 'var(--s3)' })
     + tile('미해결 이슈', num(openIssues), '건', '통합 이슈 + 개선 요청', { src: '<span class="src-tag src-toss">토플</span>', c: 'var(--red)' }) + `</div>`;
   h += `<div class="grid2 grid-gap"><div class="card"><div class="card-head"><h3>일자별 처리 추이</h3><span class="hint">합계 ${num(s.total)}건 · 이전 기간 ${num(p.total)}건</span></div>${dailyChart(rows)}</div>`
