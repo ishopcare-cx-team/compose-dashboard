@@ -771,7 +771,8 @@ function buildModel(raw) {
     const done = P(c.doneAt), sl = c.slack || null;
     // 장비·채널: 통합 이슈 값 → 슬랙 AI 분석 값 → 문의 글에서 추정
     const aiChannel = sl && (CH_RENAMES[sl.aiChannel] || sl.aiChannel);
-    const inflow = sl && sl.source && sl.source !== '콜라비' ? sl.source : /현장/.test(c.route || '') ? '현장' : /원격/.test(c.route || '') ? '원격팀' : '콜라비';
+    // 인입 채널: 상담 내역(콜라비)에 있는 건은 상담 인입 경로로(현장 · 원격팀 · 콜라비). 슬랙 '출처'(수기 · 워크플로 · 협업채널)는 상담 내역에 아직 없는 글에만 씁니다.
+    const inflow = c.slackOnly && sl && sl.source && sl.source !== '콜라비' ? sl.source : /현장/.test(c.route || '') ? '현장' : /원격/.test(c.route || '') ? '원격팀' : '콜라비';
     return { id: c.receipt || (c.slackOnly ? `슬랙-${c.at.slice(2, 16).replace(/[- :]/g, '')}` : `CS-${c.at}`), src: 'cs', inflow, slackOnly: !!c.slackOnly, at, date: ymd(at), store: st ? st.name : (c.store || '—'), skey: st ? st.key : '', slack: sl,
       channel: iss && CHANNELS.includes(iss.channel) ? iss.channel : CHANNELS.includes(aiChannel) ? aiChannel : guessChannel([c.major, c.middle, c.minor, c.question].join(' ')),
       cat: [c.major, c.middle].filter(Boolean).join(' · ') || '미분류', q: c.qTidy || c.question, a: c.qTidy ? (c.aTidy || '') : c.answer, qRaw: c.question, aRaw: c.answer, tidy: !!c.qTidy, route: c.route || '—', cx: c.cx || '',
@@ -1312,7 +1313,7 @@ function flowHtml(steps) {
   return `<div class="pflow">${steps.map((st, i) => {
     const gap = i && st.t && prevT && st.t >= prevT ? (st.t - prevT) / 60000 : null;
     if (st.t) prevT = st.t;
-    return (i ? `<div class="parrow"><span>${st.gapLabel || (gap != null ? fmtMin(gap) : '')}</span><b>→</b></div>` : '')
+    return (i ? `<div class="parrow"><span>${st.gapLabel || (gap != null && gap >= 1 ? fmtMin(gap) : '')}</span><b>→</b></div>` : '')
       + `<div class="pstep" style="--c:${st.color}"><div class="ps-h">${esc(st.name)}${st.badge ? ` <span class="ps-badge">${esc(st.badge)}</span>` : ''}</div>
         <div class="ps-t">${esc(st.time || '—')}${st.who ? ` · ${esc(st.who)}` : ''}</div>
         ${st.text ? `<div class="ps-b">${esc(st.text)}</div>` : ''}${st.sub ? `<div class="ps-s"><span>${esc(st.subLabel || '')}</span>${esc(st.sub)}</div>` : ''}</div>`;
@@ -1331,12 +1332,12 @@ function recDetail(r) {
   if (r.remote) {
     const R = r.remote;
     // 원격 채널 이모지 단계: 'OO확인' → '원격OO'(착수) → 카테고리 이모지(처리 결과). 시각을 모르면 원격팀 접수 시각으로 한 칸에 모읍니다.
-    if (R.ackAt || R.ackBy) steps.push({ name: '원격 확인', color: 'var(--s2)', t: R.ackAt, time: R.ackAt ? dt(R.ackAt).slice(5) : '확인', who: R.ackBy || R.owner, text: '' });
-    if (R.startAt || R.startBy) steps.push({ name: '원격 착수', color: 'var(--s2)', t: R.startAt, time: R.startAt ? dt(R.startAt).slice(5) : '착수', who: R.startBy || R.owner, text: '' });
-    if (!R.ackAt && !R.ackBy && !R.startAt && !R.startBy) { const st = R.start; steps.push({ name: '원격 지원', color: 'var(--s2)', t: st, time: st ? dt(st).slice(5) : '착수 전', who: R.owner, text: '' }); }
+    // 원격 지원 한 칸: 처음 손댄 시각(확인 · 착수 중 빠른 것). 확인과 착수가 1분 넘게 벌어졌을 때만 두 시각을 따로 적습니다.
+    const t0 = [R.ackAt, R.startAt, R.start].filter(Boolean).sort((a, b) => a - b)[0] || null;
+    const split = R.ackAt && R.startAt && Math.abs(R.startAt - R.ackAt) >= 60000 ? `확인 ${dt(R.ackAt).slice(11)} · 착수 ${dt(R.startAt).slice(11)}` : '';
+    steps.push({ name: '원격 지원', color: 'var(--s2)', t: t0, time: t0 ? dt(t0).slice(5) : '착수 전', who: R.startBy || R.ackBy || R.owner, text: split });
     // 처리 결과: 결과 이모지가 있거나 완료된 건만 칸을 만들고, 진행 중이면 댓글로 본 내용만 '처리 중' 칸에 둡니다(마지막 '진행 중' 칸과 겹치지 않게).
-    if (R.result || done) steps.push({ name: R.result || '원격 처리 완료', color: 'var(--green)', t: R.resultAt, time: R.resultAt ? dt(R.resultAt).slice(5) : '완료', text: R.action || '' });
-    else if (R.action) steps.push({ name: '처리 중 메모', color: 'var(--orange)', t: null, time: '진행 중', text: R.action });
+    if (R.result || R.action || done) steps.push({ name: '조치 내용', badge: R.result || '', color: R.result || done ? 'var(--green)' : 'var(--orange)', t: R.resultAt || null, time: R.resultAt ? dt(R.resultAt).slice(5) : R.result || done ? '완료' : '진행 중', text: R.action || '' });
   }
   // 협업채널에 같은 매장이 나온 글(상담 하루 전 ~ 사흘 뒤): 글 요약과 댓글로 본 처리 결과
   (CANDS || []).filter(c => c.channel === '협업채널' && c.store && String(c.store).split(/,\s*/).map(skey).includes(r.skey)).forEach(c => {
@@ -1353,7 +1354,8 @@ function recDetail(r) {
   const mid = steps.splice(1).sort((x, y) => (x.t ? x.t.getTime() : Infinity) - (y.t ? y.t.getTime() : Infinity));
   steps.push(...mid);
   const total = r.minutes != null ? r.minutes : r.doneAt ? (r.doneAt - r.at) / 60000 : null;
-  steps.push(done
+  const hasResult = !!(r.remote && (r.remote.result || r.remote.action)) || !!(r.visit && !r.visit.pending);
+  if (done || !hasResult) steps.push(done
     ? { name: '처리 완료', color: 'var(--green)', t: r.doneAt, time: r.doneAt ? dt(r.doneAt).slice(5) : '완료', text: total != null ? `총 ${fmtMin(total)} 걸림` : (r.method === 'CS안내' ? 'CS 안내로 해결' : '') }
     : { name: stage(r), color: 'var(--orange)', t: null, time: '진행 중', text: `접수 후 ${fmtMin((TODAY - r.at) / 60000)} 지남` });
   const nexts = (r.nextRecs || []).map(n => `${n.id}(${dt(n.at).slice(5)})`).join(', ');
