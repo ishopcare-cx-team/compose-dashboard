@@ -413,7 +413,8 @@
   .guide h3:not([class]){font-size:16px; font-weight:700; margin:4px 0} .guide p.g-warn,.guide li.g-warn{display:block}
   .guide.g-editing{outline:2px dashed var(--yellow); outline-offset:6px; border-radius:12px}
   .case-sum{background:var(--canvas); border:1px solid var(--line); border-radius:14px; padding:14px 16px; margin:10px 0; display:flex; flex-direction:column; gap:8px}
-  .cs-head{display:flex; gap:8px; align-items:baseline; flex-wrap:wrap} .cs-head b{font-size:15px}
+  .cs-head{display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; min-width:0} .cs-head b{font-size:15px; white-space:normal; overflow-wrap:anywhere; min-width:0; flex:1 1 200px}
+  .case-sum{white-space:normal; max-width:100%; box-sizing:border-box}
   .cs-todo{font-size:13px} .cs-todo span{font-weight:700; color:var(--orange); margin-right:6px}
   .ai-lines{display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:6px 18px; font-size:13px} .ai-lines>div{display:flex; gap:8px} .ai-lines span{color:var(--gray2); min-width:120px} .ai-err b{color:var(--red)}
   @media (max-width:640px){
@@ -1593,7 +1594,7 @@ function recDetail(r) {
   // 요약 한 줄: Claude 정리(증상 · 거친 대응 · 해결 방법) → 없으면 단계에서 만든 한 줄
   const hIts = tlItems(r), hMid = hIts.filter(x => x.step === 4).map(x => /토스/.test(x.label) ? '토플 이관' : /현장/.test(x.label) ? '현장 방문' : '').filter(Boolean);
   const hRes = hIts.find(x => x.step === 5), core = (r.viaCollab ? compress(r.toss && r.toss.slack && r.toss.slack.question) : compress(r.q)).replace(/^\d{1,2}\/\d{1,2}\s*/, '').replace(/[.]\s*최종 해결 후.*$/, '') || r.cat;
-  const headline = String((C && C.headline) || [core, ...(hRes && !r.viaCollab ? hMid : []), hRes && !r.viaCollab && hRes.text !== '처리 결과 기록 없음' ? `${hRes.text}${/해결|정상/.test(hRes.text) ? '' : '로 해결'}` : ''].filter(Boolean).join(', ')).replace(/[,·]?\s*(확인\s*중|진행\s*중|대기\s*중)$/, '');
+  const headline = String((C && C.lines && C.lines.intake) || core || '').replace(/[,·]?\s*(확인\s*중|진행\s*중|대기\s*중)$/, '');
   const doneTag = r.status === '완료' ? '해결' : /이관|토플/.test(r.status) ? '이관' : '진행 중';
   const fixBtn = C && /해결/.test(C.state || '') && VIEWER.internal && mode !== 'share' ? `<button class="btn sm" style="margin-left:auto" data-casefix="${esc(r.caseKey)}" data-v="${r.caseFix === '해제' ? '적용' : '해제'}" title="${r.statusByCase ? `콜라비 상태(${esc(r.statusRaw)}) 대신 기록으로 완료 처리` : ''}">${r.caseFix === '해제' ? '완료 판단 다시 적용' : '완료 판단 해제'}</button>` : '';
   const sumHtml = `<div class="case-sum"><div class="cs-head"><span class="tag ${stCls(doneTag)}">${esc(doneTag)}</span><b>${esc(headline)}</b>${fixBtn}</div></div>`;
