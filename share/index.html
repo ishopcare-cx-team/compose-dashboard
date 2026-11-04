@@ -1373,7 +1373,7 @@ function viewOverview() {
     // 문의 유형: 지금까지 상담 내역에 나온 유형 전체를 보여 주고, 고른 기간에 없으면 0건으로 둡니다.
     const counted = Object.fromEntries(countBy(rows.filter(r => r.src === 'cs'), r => r.cat));
     const types = [...new Set(base.filter(r => r.src === 'cs').map(r => r.cat))].map(k => [k, counted[k] || 0]).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ko'));
-    h += `<div class="ov-tiles" style="--n:2">${tile('상담 건수', num(s.total), '건', `${perLabel()} · 이전 기간 ${num(p.total)}건 (${d >= 0 ? '+' : '−'}${num(Math.abs(d))})`, { grand: true })}${tile('평균 해결 시간', fmtMin(s.avgMin), '', `이전 기간 ${fmtMin(p.avgMin)} · CS 완료 기준(방문 · 토스플레이스 확인 제외)`, { c: 'var(--s1)' })}</div>`;
+    h += `<div class="ov-tiles" style="--n:2">${tile('상담 건수', num(s.total), '건', `${perLabel()} · 이전 기간 ${num(p.total)}건 (${d >= 0 ? '+' : '−'}${num(Math.abs(d))})`, { grand: true })}${tile('평균 해결 시간', fmtMin(s.avgMin), '', `중앙값 ${fmtMin(s.medMin)} · 이전 기간 ${fmtMin(p.avgMin)}<br>처리 완료 기준 · 방문·토플 이관 제외`, { c: 'var(--s1)' })}</div>`;
     h += `<div class="card"><div class="card-head"><h3>시간대별 상담 추이</h3><span class="hint">${perLabel()} · 접수 시각 기준 · 합계 ${num(s.total)}건</span></div>${hourChart(rows)}</div>`;
     h += `<div class="grid2 even grid-gap"><div class="card"><div class="card-head"><h3>문의 유형</h3><span class="hint">전체 ${num(types.length)}개</span></div>${types.length ? hbars(types, Math.max(1, types[0][1])) : empty('없음')}</div>`
       + `<div class="card"><div class="card-head"><h3>처리 흐름</h3></div>${methodStack(s)}<div class="flow-stats">
