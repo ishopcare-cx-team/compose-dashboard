@@ -182,6 +182,8 @@
   .hbar{display:flex; align-items:center; gap:12px; padding:6px 4px; border-radius:9px}
   .hbar:hover{background:var(--surface2)}
   .hbar .nm{flex:0 0 132px; font-size:13.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .hb-wide .hbar .nm{flex:0 1 auto; max-width:62%; white-space:normal; overflow:visible} .hb-wide .hbar .tr{flex:1 1 90px; max-width:200px}
+  .src-toss{background:#ede9fe; color:#6d28d9; border-color:#ddd6fe}
   .hbar .tr{flex:1; height:12px; background:var(--surface); border-radius:6px; overflow:hidden}
   .hbar .fl{height:100%; background:var(--bar); border-radius:0 4px 4px 0; min-width:4px}
   .hbar .v{flex:0 0 auto; min-width:44px; white-space:nowrap; text-align:left; font-size:12.5px; color:var(--gray); font-variant-numeric:tabular-nums}
@@ -783,7 +785,17 @@ function guessChannel(text) {
 }
 
 /* ================================================================ 모델 만들기 */
+// 사람 이름 통일: '동욱' → '김동욱'(원격팀 명단), 괄호 뒤 문구 제거
+let PEOPLE = {}, OC_NAMES = new Set();
+function fullName(n) {
+  const t = String(n || '').replace(/\s*[(（\[].*$/, '').replace(/[)）\]]/g, '').trim();
+  if (!t) return '';
+  if (PEOPLE[t]) return PEOPLE[t];
+  if (t.length <= 2) { const hit = [...OC_NAMES].filter(x => x.length > t.length && x.endsWith(t)); if (hit.length === 1) return hit[0]; }
+  return t;
+}
 function buildModel(raw) {
+  PEOPLE = raw.people || {}; OC_NAMES = new Set(Object.values(PEOPLE));
   RAW = raw; TODAY = P(raw.now) || new Date();
   CHECK_ITEMS = raw.checkItems || [];
   STORES = []; SM = {}; VISIT_ONLY = [];
@@ -811,7 +823,10 @@ function buildModel(raw) {
   HAPPY = (raw.happy || []).filter(h => !STORE_EXCLUDE.test(h.store || '')).map((h, n) => Object.assign({}, h, { key: `hc:${n}`, answers: HCQ.map((q, i) => { const a = (h.answers || [])[i]; return a && typeof a === 'object' ? a : { result: a || '', answer: '' }; }) }));
 
   // 1) CS 상담 내역 = 허브
-  RECS = (raw.consults || []).filter(c => !STORE_EXCLUDE.test(c.store || '') && !TEST_TEXT.test(c.question || '')).map(c => {
+  const TESTS = (raw.consults || []).filter(c => TEST_TEXT.test(c.question || '') || /^테스트/.test(String(c.question || '').trim())).map(c => ({ k: skey(c.store), at: P(c.at) })).filter(t => t.k && t.at);
+  // 같은 매장 30분 안, 매장명이 없으면(원격지원 요청 워크플로) 앞뒤 10분 안의 테스트 상담에 딸린 기록
+  const nearTest = (store, at) => { const k = /미기재/.test(store || '') ? '' : skey(store); return !!at && TESTS.some(t => k ? t.k === k && Math.abs(t.at - at) <= 30 * 60000 : Math.abs(t.at - at) <= 10 * 60000); };
+  RECS = (raw.consults || []).filter(c => !STORE_EXCLUDE.test(c.store || '') && !TEST_TEXT.test(c.question || '') && !/^테스트/.test(String(c.question || '').trim())).map(c => {
     const at = P(c.at); if (!at) return null;
     const st = ensure(c.store, 'cs'), iss = issueByReceipt[c.receipt];
     const done = P(c.doneAt), sl = c.slack || null;
@@ -872,11 +887,11 @@ function buildModel(raw) {
   // 2) 원격 AS → 같은 매장, 상담 뒤 3일 안(상담보다 30분 이른 기록까지)의 가장 가까운 상담. 원격지원 상담을 먼저 고릅니다.
   //    양쪽 글에서 장비를 알 수 있는데 서로 다르면(예: 프린터 요청 ↔ 키오스크 상담) 붙이지 않습니다.
   const sameDevice = (ch, text) => { const g = guessChannel(text); return ch === '기타' || g === '기타' || g === ch; };
-  const asRecs = (raw.remote && raw.remote.as || []).map(a => Object.assign({}, a, /미기재/.test(a.store || '') || /미기재/.test(a.branch || '') ? { store: '', branch: '' } : {}, { at: P(a.atFull) || P(`${a.date} ${a.time || '00:00'}`) })).filter(a => a.at && !STORE_EXCLUDE.test(a.store || a.branch || '')).sort((x, y) => x.at - y.at);
+  const asRecs = (raw.remote && raw.remote.as || []).map(a => Object.assign({}, a, /미기재/.test(a.store || '') || /미기재/.test(a.branch || '') ? { store: '', branch: '' } : {}, { at: P(a.atFull) || P(`${a.date} ${a.time || '00:00'}`) })).filter(a => a.at && !STORE_EXCLUDE.test(a.store || a.branch || '') && !nearTest(a.store || a.branch, a.at)).sort((x, y) => x.at - y.at);
   let asLinked = 0;
   asRecs.forEach(a => {
     const k = skey(a.store || a.branch);
-    const remote = { owner: a.emp, start: a.at, req: a.req, action: a.note, intake: a.intake, status: a.status, cat: a.cat || 'as', linked: true,
+    const remote = { requester: a.requester || '', owner: fullName(a.emp), start: a.at, req: a.req, action: a.note, intake: a.intake, status: a.status, cat: a.cat || 'as', linked: true,
       ackBy: a.ackBy || '', ackAt: P(a.ackAt), startBy: a.startBy || '', startAt: P(a.startAt), result: a.result || '', resultAt: P(a.resultAt) };
     const byTf = a.tfTs ? RECS.find(x => x.src === 'cs' && !(x.remote && x.remote.linked) && x.slack && String(x.slack.link || '').includes('p' + a.tfTs.replace('.', ''))) : null;
     // 매장명이 없는 원격 요청(원격지원 요청 워크플로): 앞뒤 10분 안 원격지원 상담 중 가장 가까운 것에 붙임
@@ -939,6 +954,12 @@ function buildModel(raw) {
     if (best) { best.toss = Object.assign({}, best.toss || {}, info, { asked: (best.toss && best.toss.asked) || asked, done: (best.toss && best.toss.done) || info.done }); tossLinked++; }
     else { const st = SM[keys[0]]; TOSS_ONLY.push(Object.assign({ id: `토플-${t.date.slice(2).replace(/-/g, '.')}-${pad(n + 1)}`, at: asked, date: ymd(asked), store: st ? st.name : t.store, skey: keys[0] || '' }, info)); }
   });
+  TOSS_ONLY.filter(t => t.slack && t.slack.channel === '협업채널' && t.skey).forEach(t => {
+    t.asRec = true;
+    orphans.push({ id: `${t.date.slice(2).replace(/-/g, '.')}-C${hm(t.at).replace(':', '')}`, src: 'oc', inflow: '원격팀', side: '원격', viaCollab: true, at: t.at, date: t.date, store: t.store, skey: t.skey,
+      cat: '협업채널 문의', channel: guessChannel(t.slack.question), q: t.slack.question || '협업채널 문의', a: '', method: '토스플레이스 확인', status: t.done ? '완료' : '처리중',
+      route: '협업채널', cx: '', toss: t, csOwner: '', csAction: '', issue: null, remote: null, visit: null, doneAt: t.done || null, minutes: t.done ? (t.done - t.at) / 60000 : null });
+  });
   CS_LAST = RECS.filter(r => r.src === 'cs' && !r.slackOnly).reduce((m, r) => r.date > m ? r.date : m, '');
   RECS = RECS.concat(orphans).sort((a, b) => b.at - a.at);
   linkReinflow();
@@ -954,6 +975,14 @@ function buildModel(raw) {
     const ok = ends.filter(([t]) => t >= r.at).sort((x, y) => y[0] - x[0])[0];
     if (ok) { r.minutes = (ok[0] - r.at) / 60000; r.minutesBy = ok[1]; }
     else if (r.method === 'CS안내') { r.minutes = 0; r.minutesBy = '상담 중 해결'; }
+  });
+  // 인입 구분: 시간 순으로 처음 받은 쪽
+  //  · CS: 콜라비 상담 내역에 있는 건, #컴포즈-tf · 원격 채널에 CX가 올린 글(원격 요청자가 CX 상담사 명단에 있거나 컴포즈 이모지로 CX 이관 표시)
+  //  · 원격: #컴포즈-tf에 원격팀(OC)이 직접 올린 글, 콜라비 없이 원격팀이 받은 건, 현장 단독
+  const CX_NAMES = new Set(RECS.filter(r => r.src === 'cs' && !r.slackOnly && r.cx).map(r => fullName(r.cx)));
+  RECS.forEach(r => {
+    if (r.src === 'cs') r.side = r.slackOnly && OC_NAMES.has(fullName(r.cx)) && !CX_NAMES.has(fullName(r.cx)) ? '원격' : 'CS';
+    else r.side = r.cxHandoff || (r.remote && r.remote.requester && CX_NAMES.has(fullName(r.remote.requester))) ? 'CS' : '원격';
   });
   RECS.forEach(r => { if (!r.method || r.method === '—') { r.method = r.visit ? '방문점검' : r.remote ? '원격지원' : r.toss ? '토스플레이스 확인' : r.status === '완료' ? 'CS안내' : '미분류'; r.methodGuess = true; } });
   RECS.forEach(r => { if (r.caseDone && r.status !== '완료') { r.statusRaw = r.status; r.status = '완료'; r.statusByCase = true; } });
@@ -1218,14 +1247,17 @@ const hbars = (rows, max) => rows.map(([k, v, extra]) => `<div class="hbar"><div
 const countBy = (arr, f) => { const m = {}; arr.forEach(x => { const k = f(x); if (k != null && k !== '') m[k] = (m[k] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
 const delta = (v, p) => { const d = v - p; return d > 0 ? `<span class="delta up">▲ ${num(d)}</span>` : d < 0 ? `<span class="delta down">▼ ${num(-d)}</span>` : '<span class="delta flat">–</span>'; };
 // 원격 대기: 상담 시각 → 원격 착수(슬랙 담당 확인 이모지 시각, 없으면 원격팀 접수 시각)
-const remoteWait = r => { const R = r.remote, s = R && (R.ackAt || R.start); return s && R.handoff ? Math.max(0, (s - R.handoff) / 60000) : null; };
+// 상담 → 원격 착수: 콜라비 인입(상담 시각) → 원격 채널 글에 담당자가 확인 이모지를 단 시각. 확인 시각이 없거나, 원격 글이 상담과 2시간 넘게 떨어진(다른 건일 수 있는) 경우는 빼고 셉니다.
+const remoteWait = r => { const R = r.remote; if (!R || !R.linked || !R.ackAt || !R.handoff) return null; if (R.start && Math.abs(R.start - R.handoff) > 2 * 36e5) return null; return Math.max(0, (R.ackAt - R.handoff) / 60000); };
+const median = a => { if (!a.length) return null; const b = a.slice().sort((x, y) => x - y), m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
 const tossWait = r => r.toss && r.toss.done && r.toss.asked ? (r.toss.done - r.toss.asked) / 60000 : null;
 function stats(rows) {
   const done = rows.filter(r => r.status === '완료');
-  return { total: rows.length, cs: rows.filter(r => r.src === 'cs').length, oc: rows.filter(r => r.src === 'oc').length, done: done.length, open: rows.length - done.length,
+  return { total: rows.length, cs: rows.filter(r => r.side === 'CS').length, oc: rows.filter(r => r.side === '원격').length, done: done.length, open: rows.length - done.length,
     mCs: rows.filter(r => r.method === 'CS안내').length, mRemote: rows.filter(r => r.method === '원격지원').length, mVisit: rows.filter(r => r.method === '방문점검').length,
     remoteAll: rows.filter(r => r.remote).length, linked: rows.filter(r => r.remote && r.remote.linked && r.src === 'cs').length,
-    avgMin: avg(done.filter(r => r.src === 'cs' && !r.toss && r.method !== '방문점검' && r.minutes != null).map(r => r.minutes)),
+    avgMin: avg(done.filter(r => r.method !== '방문점검' && !r.visit && r.minutes != null).map(r => r.minutes)),
+    medWait: median(rows.map(remoteWait).filter(v => v != null)),
     avgWait: avg(rows.map(remoteWait).filter(v => v != null)), avgToss: avg(rows.map(tossWait).filter(v => v != null)),
     toss: rows.filter(r => r.toss).length, tossOpen: rows.filter(r => r.toss && !r.toss.done).length,
     avgVisitDays: avg(rows.filter(r => r.visit && !r.visit.pending && r.visit.days != null).map(r => r.visit.days)), stores: new Set(rows.map(r => r.skey)).size };
@@ -1342,25 +1374,25 @@ function viewOverview() {
   }
   h += `<div class="ov-tiles" style="--n:6">`
     + tile('전체 접수', num(s.total), '건', `CS ${num(s.cs)} · 원격 ${num(s.oc)}<br>이전 대비 ${d >= 0 ? '+' : '−'}${num(Math.abs(d))}`, { grand: true })
-    + tile('평균 해결 시간', fmtMin(s.avgMin), '', `CS 완료 기준 · 방문·토플 제외`, { src: src('cs') })
-    + tile('CS 바로 해결', s.total ? (s.mCs / s.total * 100).toFixed(0) : 0, '%', `CS안내로 끝난 ${num(s.mCs)}건`, { src: src('cs'), c: 'var(--s1)' })
-    + tile('원격 처리', num(s.remoteAll), '건', `상담→원격 착수<br>평균 ${fmtMin(s.avgWait)}`, { src: src('both'), c: 'var(--s2)' })
+    + tile('평균 해결 시간', fmtMin(s.avgMin), '', '처리 완료 기준<br>현장 방문 제외')
+    + tile('CS 해결', s.total ? (s.mCs / s.total * 100).toFixed(0) : 0, '%', `CS 즉시 해결 ${num(s.mCs)}건`, { src: src('cs'), c: 'var(--s1)' })
+    + tile('원격 처리', num(s.remoteAll), '건', `상담 → 원격 착수<br>평균 ${fmtMin(s.avgWait)} · 중앙값 ${fmtMin(s.medWait)}`, { src: src('both'), c: 'var(--s2)' })
     + tile('방문 점검', num(s.mVisit), '건', `방문까지 평균 ${s.avgVisitDays == null ? '—' : s.avgVisitDays.toFixed(1) + '일'}`, { src: src('oc'), c: 'var(--s3)' })
-    + tile('미해결 이슈', num(openIssues), '건', '통합 이슈 + 개선 요청', { src: src('cs'), c: 'var(--red)' }) + `</div>`;
+    + tile('미해결 이슈', num(openIssues), '건', '통합 이슈 + 개선 요청', { src: '<span class="src-tag src-toss">토플</span>', c: 'var(--red)' }) + `</div>`;
   h += `<div class="grid2 grid-gap"><div class="card"><div class="card-head"><h3>일자별 처리 추이</h3><span class="hint">합계 ${num(s.total)}건 · 이전 기간 ${num(p.total)}건</span></div>${dailyChart(rows)}</div>`
     + `<div class="card"><div class="card-head"><h3>처리 흐름 ${src('both')}</h3></div>${methodStack(s)}<div class="flow-stats">
-        <div class="fstat"><span>CX 상담 → 원격 착수 <small>(슬랙 담당 확인)</small></span><div><b>${fmtMin(s.avgWait)}</b><small>평균</small></div></div>
+        <div class="fstat"><span>CX 상담 → 원격 착수 <small>(원격 채널 담당 확인 이모지)</small></span><div><b>${fmtMin(s.avgWait)}</b><small>평균 · 중앙값 ${fmtMin(s.medWait)}</small></div></div>
         <div class="fstat"><span>원격 → 현장 방문</span><div><b>${s.avgVisitDays == null ? '—' : s.avgVisitDays.toFixed(1)}</b><small>일 평균</small></div></div>
         <div class="fstat"><span>토스플레이스 회신 <small>(${num(s.toss)}건 · 대기 ${num(s.tossOpen)})</small></span><div><b>${fmtMin(s.avgToss)}</b><small>평균</small></div></div></div></div></div>`;
   const catsAll = countBy(rows.filter(r => r.src === 'cs'), r => r.cat), cats = catsAll.slice(0, 8), catsMore = catsAll.slice(8), chs = countBy(rows, r => r.channel), ins = countBy(rows, r => r.inflow);
-  h += `<div class="grid2 even grid-gap"><div class="card"><div class="card-head"><h3>문의유형 상위 ${src('cs')}</h3><span class="hint">상위 8개 · 전체 ${num(catsAll.length)}개</span></div>${cats.length ? hbars(cats, cats[0][1]) : empty('없음')}${catsMore.length ? `<details class="more-cats" ${OPEN.has('ov:cats') ? 'open' : ''}><summary data-toggle-key="ov:cats">나머지 ${num(catsMore.length)}개 펼치기</summary>${hbars(catsMore, cats[0][1])}</details>` : ''}</div>
+  h += `<div class="grid2 even grid-gap"><div class="card hb-wide"><div class="card-head"><h3>문의유형 상위 ${src('cs')}</h3><span class="hint">상위 8개 · 전체 ${num(catsAll.length)}개</span></div>${cats.length ? hbars(cats, cats[0][1]) : empty('없음')}${catsMore.length ? `<details class="more-cats" ${OPEN.has('ov:cats') ? 'open' : ''}><summary data-toggle-key="ov:cats">나머지 ${num(catsMore.length)}개 펼치기</summary>${hbars(catsMore, cats[0][1])}</details>` : ''}</div>
     <div class="card"><div class="card-head"><h3>장비·채널별 ${src('both')}</h3><span class="hint">원격 건수 함께 표시</span></div>${chs.length ? hbars(chs.map(([k, v]) => [k, v, `원격 ${rows.filter(r => r.channel === k && r.remote).length}`]), chs[0][1]) : empty('없음')}</div></div>`;
   h += `<div class="card"><div class="card-head"><h3>인입 채널별</h3><span class="hint">콜라비 · 원격팀 · 법인폰 · 현장</span></div>${ins.length ? hbars(ins, ins[0][1]) : empty('없음')}</div>`;
   // 반복 문의 매장: 누르면 그 매장의 최근 30일 기록이 아래로 펼쳐집니다.
   const rep = countBy(base.filter(r => r.at >= addDay(TODAY, -30)), r => r.skey).filter(([, n]) => n >= 3).slice(0, 10);
   h += `<div class="card"><div class="card-head"><h3>⚠ 반복 문의 매장</h3><span class="hint">최근 30일 3회 이상 · 상위 10곳 · 누르면 아래로 펼쳐짐</span></div>`
     + (rep.length ? rep.map(([k, n]) => { const rs = base.filter(r => r.skey === k && r.at >= addDay(TODAY, -30)), key = `rep:${k}`, o = OPEN.has(key);
-      return `<div class="rep-wrap ${o ? 'open' : ''}"><div class="rep-row" data-open="${esc(key)}"><div class="rep-nm">${esc(storeName(k))}${caret(key)}</div><div class="rep-bar"><div class="rep-fill" style="width:${n / rep[0][1] * 100}%"></div></div><div class="rep-n"><b>${n}</b>건</div><div class="rep-cats">${countBy(rs, r => r.channel).slice(0, 3).map(([c, x]) => `<span class="tag">${esc(c)} ${x}</span>`).join('')}${rs.some(r => r.visit) ? '<span class="tag red">방문 있음</span>' : ''}</div></div>`
+      return `<div class="rep-wrap ${o ? 'open' : ''}"><div class="rep-row" data-open="${esc(key)}"><div class="rep-nm">${esc(storeName(k))}${caret(key)}</div><div class="rep-bar"><div class="rep-fill" style="width:${n / rep[0][1] * 100}%"></div></div><div class="rep-n"><b>${n}</b>건</div><div class="rep-cats">${countBy(rs, r => r.channel).slice(0, 3).map(([c, x]) => `<span class="tag">${esc(c)} ${x}</span>`).join('')}</div></div>`
         + (o ? `<div class="rep-detail tbl-scroll"><table class="mcard">${REC_HEAD}<tbody>${rs.map(recRow).join('')}</tbody></table></div>` : '') + `</div>`; }).join('') : empty('반복 문의 매장이 없습니다.')) + `</div>`;
   h += ownerCard(rows);
   return h;
@@ -1368,7 +1400,7 @@ function viewOverview() {
 
 // 담당자별 처리(슬랙 이모지): 원격 담당자(담당 확인 이모지) · 처리완료 이모지를 단 사람 · 조치 남긴 사람
 function ownerCard(rows) {
-  const clean = n => String(n || '').replace(/\s*[(（\[].*$/, '').replace(/[)）\]]/g, '').trim();
+  const clean = n => { const t = fullName(n); return /^미지정$/.test(t) ? '담당 미지정' : t; };
   const m = {}, get = n0 => { const n = clean(n0) || n0; return (m[n] = m[n] || { name: n, own: 0, waits: [], done: 0, action: 0, open: 0 }); };
   rows.forEach(r => {
     const sl = r.slack || {}, owner = sl.owner || (r.remote && r.remote.owner);
@@ -1750,7 +1782,7 @@ function procDetail(x) {
 function viewProcess() {
   const all = RECS.map(r => ({ key: `rec:${r.id}`, id: r.id, at: (r.remote && r.remote.start) || (r.visit && r.visit.date) || r.at, store: r.store, proc: PROC_BY[procOf(r)].name, channel: r.channel, status: r.status,
       owner: (r.visit && r.visit.by) || (r.remote && r.remote.owner) || r.cx || '', text: (r.caseSum && r.caseSum.result) || (r.slack && r.slack.action) || (r.remote && r.remote.action) || (r.visit && r.visit.action) || r.a || r.q, rec: r }))
-    .concat(TOSS_ONLY.map(t => ({ key: `tos:${t.id}`, id: t.id, at: t.at, store: t.store, proc: '토스플레이스 확인', channel: guessChannel(t.slack.question), status: t.done ? '완료' : '확인중(토스플레이스)', owner: '', text: t.slack.question || '토스플레이스 문의', tossOnly: t })))
+    .concat(TOSS_ONLY.filter(t => !t.asRec).map(t => ({ key: `tos:${t.id}`, id: t.id, at: t.at, store: t.store, proc: '토스플레이스 확인', channel: guessChannel(t.slack.question), status: t.done ? '완료' : '확인중(토스플레이스)', owner: '', text: t.slack.question || '토스플레이스 문의', tossOnly: t })))
     .concat(VISIT_ONLY.map(v => ({ key: `vis:${v.id}`, id: v.id, at: v.at, store: v.store, proc: '현장방문', channel: guessChannel(v.equip), status: v.pending ? '예정' : '완료', owner: v.by || '', text: `현장 ${v.kind} · ${v.equip || ''}`, visit: v })))
     .map(x => Object.assign(x, { date: ymd(x.at) })).filter(x => inPeriod(x.at)).sort((a, b) => b.at - a.at);
   const tags = [{ key: 'proc', label: '처리 구분', get: x => x.proc, order: PROC.map(p => p.name) }, { key: 'channel', label: '장비·채널', get: x => x.channel, order: CHANNELS },
