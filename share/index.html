@@ -406,7 +406,8 @@
   .cs-tl{list-style:none; margin:0; padding:0 0 0 12px; border-left:2px solid var(--line); display:flex; flex-direction:column; gap:6px}
   .cs-tl li{display:grid; grid-template-columns:86px 78px 1fr; gap:8px; font-size:13px; position:relative} .cs-tl li::before{content:""; position:absolute; left:-17px; top:6px; width:8px; height:8px; border-radius:50%; background:var(--accent)}
   .cs-tl time{font-variant-numeric:tabular-nums; color:var(--gray2)} .cs-tl em{font-style:normal; font-weight:700}
-  .cs-steps>summary{cursor:pointer; font-size:12.5px; color:var(--gray2); margin:4px 0}
+  .cs-steps>summary{cursor:pointer; display:inline-flex; align-items:center; gap:6px; list-style:none; font-size:13px; font-weight:700; color:#1f1d17; background:var(--yellow); border-radius:10px; padding:8px 14px; margin:6px 0 10px; box-shadow:0 1px 0 rgba(0,0,0,.08)}
+  .cs-steps>summary::-webkit-details-marker{display:none} .cs-steps>summary::before{content:'▸'; transition:transform .15s} .cs-steps[open]>summary::before{transform:rotate(90deg)} .cs-steps>summary:hover{filter:brightness(.96)} .cs-steps>summary:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
   @media (max-width:600px){.cs-tl li{grid-template-columns:76px 1fr}.cs-tl li span{grid-column:1 / -1}} .guide.g-editing:focus{outline-style:solid}
   .g-tools{display:inline-flex; gap:4px; margin-right:6px} .man-form{margin-top:6px}
   .more-cats summary{cursor:pointer; font-size:12.5px; font-weight:700; color:var(--accent-deep); padding:8px 4px 2px}
@@ -784,7 +785,7 @@ function buildModel(raw) {
     const inflow = c.slackOnly && sl && sl.source && sl.source !== '콜라비' ? sl.source : /현장/.test(c.route || '') ? '현장' : /원격/.test(c.route || '') ? '원격팀' : '콜라비';
     return { id: c.receipt || (c.slackOnly ? `슬랙-${c.at.slice(2, 16).replace(/[- :]/g, '')}` : `CS-${c.at}`), src: 'cs', inflow, slackOnly: !!c.slackOnly, at, date: ymd(at), store: st ? st.name : (c.store || '—'), skey: st ? st.key : '', slack: sl,
       channel: iss && CHANNELS.includes(iss.channel) ? iss.channel : CHANNELS.includes(aiChannel) ? aiChannel : guessChannel([c.major, c.middle, c.minor, c.question].join(' ')),
-      cat: [c.major, c.middle].filter(Boolean).join(' · ') || '미분류', q: c.qTidy || c.question, a: c.qTidy ? (c.aTidy || '') : c.answer, qRaw: c.question, aRaw: c.answer, tidy: !!c.qTidy, caseSum: c.caseSum || null, caseDone: !!(c.caseSum && /해결/.test(c.caseSum.state || '')), route: c.route || '—', cx: c.cx || '',
+      cat: [c.major, c.middle].filter(Boolean).join(' · ') || '미분류', q: c.qTidy || c.question, a: c.qTidy ? (c.aTidy || '') : c.answer, qRaw: c.questionRaw || c.question, aRaw: c.answerRaw || c.answer, tidy: !!c.qTidy, caseSum: c.caseSum || null, caseDone: !!(c.caseSum && /해결/.test(c.caseSum.state || '')), route: c.route || '—', cx: c.cx || '',
       method: c.method || '—', status: c.status || '처리중', doneAt: done, minutes: validMinutes(c.minutes != null ? c.minutes : done ? (done - at) / 60000 : null),
       toss: c.tossAsked ? { asked: P(c.tossAsked), done: P(c.tossDone) } : null, csOwner: c.owner || '', csAction: c.action || '', issue: iss || null, remote: null, visit: null };
   }).filter(Boolean);
@@ -1320,6 +1321,16 @@ function slackCard(r) {
 }
 // 상세: 무엇을 문의했고 → 어떻게 해결했고 → 얼마나 걸렸는지를 가로 흐름 한 줄로 보여 줍니다.
 // 단계: 인입(+CX 안내) → 토스플레이스 확인 → 원격 지원 → 현장 방문 · AS → 처리 완료. 단계 사이 화살표에 걸린 시간을 적습니다.
+// 화면용 글 정리: 이모지 · :이모지: · 장식 기호 · 링크를 걷고, 길면 문장이 끝나는 곳에서만 자릅니다(말이 중간에 끊기지 않게).
+function cleanText(s, max = 220) {
+  let t = String(s || '').replace(/https?:\/\/\S+/g, '').replace(/:[a-z0-9_+\-]+:/gi, '')
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]/gu, '').replace(/[■□◆◇▶▷►●○★☆※▪▫◀◁♠♣♥♦]/g, '')
+    .replace(/(^|\s)[>*\-•·]+\s/g, '$1').replace(/([!?.~])\1+/g, '$1').replace(/\s+/g, ' ').trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max), ends = [...cut.matchAll(/(?:다|요|죠|음|함|됨|임|니다|습니다)[.!?]?(?=\s|$)|[.!?](?=\s|$)/g)];
+  const last = ends.length ? ends[ends.length - 1] : null;
+  return last && last.index + last[0].length >= max * 0.4 ? cut.slice(0, last.index + last[0].length).trim() : cut.replace(/\s+\S*$/, '') + ' …';
+}
 function flowHtml(steps) {
   let prevT = null;
   return `<div class="pflow">${steps.map((st, i) => {
@@ -1328,7 +1339,7 @@ function flowHtml(steps) {
     return (i ? `<div class="parrow"><span>${st.gapLabel || (gap != null && gap >= 1 ? fmtMin(gap) : '')}</span><b>→</b></div>` : '')
       + `<div class="pstep" style="--c:${st.color}"><div class="ps-h">${esc(st.name)}${st.badge ? ` <span class="ps-badge">${esc(st.badge)}</span>` : ''}</div>
         <div class="ps-t">${esc(st.time || '—')}${st.who ? ` · ${esc(st.who)}` : ''}</div>
-        ${st.text ? `<div class="ps-b">${esc(st.text)}</div>` : ''}${st.sub ? `<div class="ps-s"><span>${esc(st.subLabel || '')}</span>${esc(st.sub)}</div>` : ''}</div>`;
+        ${st.text ? `<div class="ps-b">${esc(cleanText(st.text))}</div>` : ''}${st.sub ? `<div class="ps-s"><span>${esc(st.subLabel || '')}</span>${esc(cleanText(st.sub, 260))}</div>` : ''}</div>`;
   }).join('')}</div>`;
 }
 function recDetail(r) {
