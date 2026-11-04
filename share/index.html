@@ -372,7 +372,8 @@
   body.share #viewHost > .notice:not(.danger), body.share .share-only{display:none !important}
   /* 상담 내역 기간 조회 */
   /* 당일 · 주간 · 월별 · 기간 상세 버튼이 모드를 바꿔도 같은 자리에 있도록 옆 칸 너비를 고정합니다(넓은 화면). */
-  .per-more{display:flex; align-items:center; justify-content:flex-start; gap:6px; flex-wrap:nowrap; width:420px}
+  .per-more{display:flex; align-items:center; justify-content:flex-end; gap:6px; flex-wrap:nowrap}
+  #ctlHost{margin-left:auto; justify-content:flex-end}
   @media (max-width:1180px){ .per-more{width:auto; flex-wrap:wrap} }
   .per-more input[type=date]{font-family:inherit; font-size:13.5px; padding:7px 10px; border:1px solid var(--line); border-radius:10px; background:var(--canvas); color:var(--ink)}
   .per-label{font-size:13.5px; font-weight:700; padding:0 6px; white-space:nowrap}
@@ -1103,7 +1104,8 @@ function perControls() {
   if (PER.mode === 'week') more = `<button class="btn sm" data-pstep="-1">◀ 전주</button><span class="per-label">${perLabel()}</span><button class="btn sm" data-pstep="1">다음주 ▶</button><button class="btn sm" data-ptoday>이번 주</button>`;
   if (PER.mode === 'month') more = `<select id="perMonth">${perMonths().map(m => `<option value="${m}" ${m === PER.month ? 'selected' : ''}>${ymLabel(m)}</option>`).join('')}</select>`;
   if (PER.mode === 'range') more = `<input type="date" id="perFrom" value="${PER.from}" aria-label="시작일"><span class="muted">~</span><input type="date" id="perTo" value="${PER.to}" aria-label="종료일">`;
-  return `<div class="seg" id="perSeg">${seg}</div><div class="per-more">${more}</div>`;
+  // 기간 버튼은 맨 오른쪽에 고정하고, 기간마다 바뀌는 칸(날짜 · 주 이동 · 월 선택)은 그 바로 왼쪽에 붙입니다(오른쪽 공백 없음).
+  return `<div class="per-more">${more}</div><div class="seg" id="perSeg">${seg}</div>`;
 }
 function prevScope(r) { if (scope === '7d') return r.at >= addDay(TODAY, -14) && r.at < addDay(TODAY, -7); if (scope === '30d') return r.at >= addDay(TODAY, -60) && r.at < addDay(TODAY, -30); return r.date.slice(0, 7) === prevYM(scope.slice(1)); }
 const TITLES = {
