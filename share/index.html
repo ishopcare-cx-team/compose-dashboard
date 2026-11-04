@@ -208,7 +208,7 @@
 
   .rep-row{display:flex; align-items:center; gap:14px; cursor:pointer; padding:7px 8px; border-radius:10px}
   .rep-row:hover{background:var(--surface)}
-  .rep-nm{flex:0 0 120px; font-size:14px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .rep-nm{flex:0 0 200px; font-size:14px; font-weight:700; white-space:nowrap}
   .rep-bar{flex:1 1 150px; min-width:80px; height:12px; background:var(--surface); border-radius:7px; overflow:hidden}
   .rep-fill{height:100%; border-radius:0 4px 4px 0; background:var(--bar); min-width:6px}
   .rep-n{flex:0 0 auto; font-size:12.5px; color:var(--gray); min-width:52px}
@@ -505,7 +505,7 @@
     .ov-tiles{grid-template-columns:repeat(2,minmax(0,1fr)) !important} .ov-tile .ov-val{font-size:28px}
     .store-stats{grid-template-columns:repeat(2,minmax(0,1fr))} .seg{max-width:100%; overflow-x:auto}
     .rep{padding:22px 18px}
-    .hbar .nm,.rep-nm{flex-basis:92px} .rep-cats{display:none}
+    .hbar .nm{flex-basis:92px} .rep-nm{flex-basis:120px; white-space:normal} .rep-cats{display:none}
   }
   @media print{ .top-actions,.side,.side-toggle,.toolbar{display:none !important} body{background:#fff} .page{padding:0; max-width:none} .rep{box-shadow:none; padding:0} }
 </style>
