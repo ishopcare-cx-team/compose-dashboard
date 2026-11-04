@@ -117,6 +117,9 @@
   .ov-tiles{display:grid; grid-template-columns:repeat(var(--n,5),minmax(0,1fr)); gap:14px; margin-bottom:22px}
   .ov-tile{background:var(--canvas); border-radius:16px; padding:16px 18px; box-shadow:var(--shadow); border-left:4px solid var(--c,var(--accent-line))}
   .ov-tile .ov-name{font-size:14px; font-weight:600; color:var(--gray); display:flex; align-items:center; gap:6px}
+  .ov-tile .ov-name{white-space:nowrap} .ov-tile .ov-name .src-tag{font-size:10.5px; padding:1px 5px}
+  /* 카드 7개: 넓은 화면은 한 줄, 좁으면 4 · 3개씩 */
+  @media (max-width:1500px){ .ov-tiles[style*="--n:7"]{grid-template-columns:repeat(4,minmax(0,1fr))} }
   .ov-tile .ov-val{font-size:34px; font-weight:800; letter-spacing:-.03em; margin-top:9px; line-height:1}
   .ov-tile .ov-val small{font-size:15px; font-weight:600; color:var(--gray2); margin-left:3px}
   .ov-tile .ov-sub{font-size:12.5px; font-weight:600; margin-top:7px; color:var(--gray2)}
@@ -1368,20 +1371,7 @@ function viewOverview() {
   const sq = skey(flt('overview').store), byStore = x => !sq || skey(x.store).includes(sq);
   const openIssues = ISSUES.filter(i => byStore(i) && !/^완료/.test(i.status)).length + VOC.filter(v => byStore(v) && !['완료', '보류'].includes(v.status)).length, d = s.total - p.total;
   let h = filterBar('overview', RECS.filter(r => inPeriod(r.at)), tags, rows.length);
-  // 공유용(토스플레이스): 상담 건수 · 평균 해결 시간 · 시간대별 상담 추이 · 문의 유형 · 처리 흐름만 보여 줍니다.
-  if (mode === 'share') {
-    // 문의 유형: 지금까지 상담 내역에 나온 유형 전체를 보여 주고, 고른 기간에 없으면 0건으로 둡니다.
-    const counted = Object.fromEntries(countBy(rows.filter(r => r.src === 'cs'), r => r.cat));
-    const types = [...new Set(base.filter(r => r.src === 'cs').map(r => r.cat))].map(k => [k, counted[k] || 0]).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'ko'));
-    h += `<div class="ov-tiles" style="--n:2">${tile('상담 건수', num(s.total), '건', `${perLabel()} · 이전 기간 ${num(p.total)}건 (${d >= 0 ? '+' : '−'}${num(Math.abs(d))})`, { grand: true })}${tile('평균 해결 시간', fmtMin(s.avgMin), '', `중앙값 ${fmtMin(s.medMin)} · 이전 기간 ${fmtMin(p.avgMin)}<br>처리 완료 기준 · 방문·토플 이관 제외`, { c: 'var(--s1)' })}</div>`;
-    h += `<div class="card"><div class="card-head"><h3>시간대별 상담 추이</h3><span class="hint">${perLabel()} · 접수 시각 기준 · 합계 ${num(s.total)}건</span></div>${hourChart(rows)}</div>`;
-    h += `<div class="grid2 even grid-gap"><div class="card"><div class="card-head"><h3>문의 유형</h3><span class="hint">전체 ${num(types.length)}개</span></div>${types.length ? hbars(types, Math.max(1, types[0][1])) : empty('없음')}</div>`
-      + `<div class="card"><div class="card-head"><h3>처리 흐름</h3></div>${methodStack(s)}<div class="flow-stats">
-        <div class="fstat"><span>상담 → 원격 착수</span><div><b>${fmtMin(s.avgWait)}</b><small>평균</small></div></div>
-        <div class="fstat"><span>원격 → 현장 방문</span><div><b>${s.avgVisitDays == null ? '—' : s.avgVisitDays.toFixed(1)}</b><small>일 평균</small></div></div>
-        <div class="fstat"><span>토스플레이스 회신 <small>(${num(s.toss)}건 · 대기 ${num(s.tossOpen)})</small></span><div><b>${fmtMin(s.avgToss)}</b><small>평균</small></div></div></div></div></div>`;
-    return h;
-  }
+  // 공유용도 내부용과 같은 카드 · 차트 · 문구를 씁니다(데이터는 이름 가림 · 정제 문장). 담당자별 처리처럼 사람 이름이 나오는 운영 카드만 내부용에서만.
   h += `<div class="ov-tiles" style="--n:7">`
     + tile('전체 접수', num(s.total), '건', `CS ${num(s.cs)} · 원격 ${num(s.oc)}<br>이전 대비 ${d >= 0 ? '+' : '−'}${num(Math.abs(d))}`, { grand: true })
     + tile('평균 해결 시간', fmtMin(s.avgMin), '', `중앙값 ${fmtMin(s.medMin)}<br>처리 완료 기준 · 방문·토플 이관 제외`)
@@ -1394,7 +1384,7 @@ function viewOverview() {
     + `<div class="card"><div class="card-head"><h3>처리 흐름 ${src('both')}</h3></div>${methodStack(s)}<div class="flow-stats">
         <div class="fstat"><span>CX 상담 → 원격 착수 <small>(원격 채널 담당 확인 이모지)</small></span><div><b>${fmtMin(s.avgWait)}</b><small>평균 · 중앙값 ${fmtMin(s.medWait)}</small></div></div>
         <div class="fstat"><span>원격 → 현장 방문</span><div><b>${s.avgVisitDays == null ? '—' : s.avgVisitDays.toFixed(1)}</b><small>일 평균</small></div></div>
-        <div class="fstat"><span>토스플레이스 회신 <small>(${num(s.toss)}건 · 대기 ${num(s.tossOpen)})</small></span><div><b>${fmtMin(s.avgToss)}</b><small>평균</small></div></div></div></div></div>`;
+        <div class="fstat"><span>토스플레이스 회신 <small>(${num(s.toss)}건 · 대기 ${num(s.tossOpen)})</small></span><div><b>${fmtMin(s.avgToss)}</b><small>평균 · 중앙값 ${fmtMin(s.medToss)}</small></div></div></div></div></div>`;
   const catsAll = countBy(rows.filter(r => r.src === 'cs'), r => r.cat), cats = catsAll.slice(0, 8), catsMore = catsAll.slice(8), chs = countBy(rows, r => r.channel), ins = countBy(rows, r => r.inflow);
   h += `<div class="grid2 even grid-gap"><div class="card hb-wide"><div class="card-head"><h3>문의유형 상위 ${src('cs')}</h3><span class="hint">상위 8개 · 전체 ${num(catsAll.length)}개</span></div>${cats.length ? hbars(cats, cats[0][1]) : empty('없음')}${catsMore.length ? `<details class="more-cats" ${OPEN.has('ov:cats') ? 'open' : ''}><summary data-toggle-key="ov:cats">나머지 ${num(catsMore.length)}개 펼치기</summary>${hbars(catsMore, cats[0][1])}</details>` : ''}</div>
     <div class="card"><div class="card-head"><h3>장비·채널별 ${src('both')}</h3><span class="hint">원격 건수 함께 표시</span></div>${chs.length ? hbars(chs.map(([k, v]) => [k, v, `원격 ${rows.filter(r => r.channel === k && r.remote).length}`]), chs[0][1]) : empty('없음')}</div></div>`;
@@ -1405,7 +1395,7 @@ function viewOverview() {
     + (rep.length ? rep.map(([k, n]) => { const rs = base.filter(r => r.skey === k && r.at >= addDay(TODAY, -30)), key = `rep:${k}`, o = OPEN.has(key);
       return `<div class="rep-wrap ${o ? 'open' : ''}"><div class="rep-row" data-open="${esc(key)}"><div class="rep-nm">${esc(storeName(k))}${caret(key)}</div><div class="rep-bar"><div class="rep-fill" style="width:${n / rep[0][1] * 100}%"></div></div><div class="rep-n"><b>${n}</b>건</div><div class="rep-cats">${countBy(rs, r => r.channel).slice(0, 3).map(([c, x]) => `<span class="tag">${esc(c)} ${x}</span>`).join('')}</div></div>`
         + (o ? `<div class="rep-detail tbl-scroll"><table class="mcard">${REC_HEAD}<tbody>${rs.map(recRow).join('')}</tbody></table></div>` : '') + `</div>`; }).join('') : empty('반복 문의 매장이 없습니다.')) + `</div>`;
-  h += ownerCard(rows);
+  if (mode !== 'share') h += ownerCard(rows);
   return h;
 }
 
