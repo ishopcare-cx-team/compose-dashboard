@@ -998,6 +998,8 @@ function buildModel(raw) {
     if (r.src === 'cs') r.side = r.slackOnly && OC_NAMES.has(fullName(r.cx)) && !CX_NAMES.has(fullName(r.cx)) ? '원격' : 'CS';
     else r.side = r.cxHandoff || (r.remote && r.remote.requester && CX_NAMES.has(fullName(r.remote.requester))) ? 'CS' : '원격';
   });
+  // 처리 방식 우선순위: 현장 방문 > 원격 기록 > 상담 내역 처리 방식. 카드 · 막대 · 처리 내역이 모두 이 값을 씁니다.
+  RECS.forEach(r => { if (r.method === 'CS안내' && r.remote && r.remote.linked) { r.methodRaw = r.method; r.method = '원격지원'; } });
   RECS.forEach(r => { if (!r.method || r.method === '—') { r.method = r.visit ? '방문점검' : r.remote ? '원격지원' : r.toss ? '토스플레이스 확인' : r.status === '완료' ? 'CS안내' : '미분류'; r.methodGuess = true; } });
   RECS.forEach(r => { if (r.caseDone && r.status !== '완료') { r.statusRaw = r.status; r.status = '완료'; r.statusByCase = true; } });
   STORES.forEach(buildInventory);
@@ -1276,8 +1278,8 @@ const tossWait = r => r.toss && r.toss.done && r.toss.asked && r.toss.done - r.t
 function stats(rows) {
   const done = rows.filter(r => r.status === '완료');
   return { total: rows.length, cs: rows.filter(r => r.side === 'CS').length, oc: rows.filter(r => r.side === '원격').length, done: done.length, open: rows.length - done.length,
-    mCs: rows.filter(r => r.method === 'CS안내').length, mRemote: rows.filter(r => r.method === '원격지원').length, mVisit: rows.filter(r => r.method === '방문점검').length,
-    remoteAll: rows.filter(r => r.remote).length, linked: rows.filter(r => r.remote && r.remote.linked && r.src === 'cs').length,
+    mCs: rows.filter(r => r.method === 'CS안내').length, mRemote: rows.filter(r => r.method === '원격지원').length, mVisit: rows.filter(r => r.method === '방문점검').length, mEtc: rows.filter(r => !['CS안내', '원격지원', '방문점검', '토스플레이스 확인'].includes(r.method)).length,
+    remoteAll: rows.filter(r => r.method === '원격지원').length, mToss: rows.filter(r => r.method === '토스플레이스 확인').length, linked: rows.filter(r => r.remote && r.remote.linked && r.src === 'cs').length,
     avgMin: avg(done.filter(r => r.method !== '방문점검' && !r.visit && !r.toss && r.minutes != null).map(r => r.minutes)),
     medMin: median(done.filter(r => r.method !== '방문점검' && !r.visit && !r.toss && r.minutes != null).map(r => r.minutes)),
     medToss: median(rows.map(tossWait).filter(v => v != null)),
@@ -1322,9 +1324,9 @@ function hourChart(rows) {
   return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="시간대별 상담 건수">${g}</svg></div>`;
 }
 function methodStack(s) {
-  const t = s.mCs + s.mRemote + s.mVisit || 1, seg = (n, c, l) => n ? `<div style="flex:${n};background:var(${c})" data-tip="<b>${n}건</b> · ${l} ${(n / t * 100).toFixed(0)}%">${n / t > .09 ? (n / t * 100).toFixed(0) + '%' : ''}</div>` : '';
-  return `<div class="stack">${seg(s.mCs, '--s1', 'CS안내')}${seg(s.mRemote, '--s2', '원격지원')}${seg(s.mVisit, '--s3', '방문점검')}</div>
-    <div class="legend"><span><i style="background:var(--s1)"></i>CS안내 ${num(s.mCs)}건</span><span><i style="background:var(--s2)"></i>원격지원 ${num(s.mRemote)}건</span><span><i style="background:var(--s3)"></i>방문점검 ${num(s.mVisit)}건</span></div>`;
+  const t = s.mCs + s.mRemote + s.mVisit + (s.mToss || 0) + (s.mEtc || 0) || 1, seg = (n, c, l) => n ? `<div style="flex:${n};background:var(${c})" data-tip="<b>${n}건</b> · ${l} ${(n / t * 100).toFixed(0)}%">${n / t > .09 ? (n / t * 100).toFixed(0) + '%' : ''}</div>` : '';
+  return `<div class="stack">${seg(s.mCs, '--s1', 'CS안내')}${seg(s.mRemote, '--s2', '원격지원')}${seg(s.mVisit, '--s3', '방문점검')}${seg(s.mToss || 0, '--purple', '토플 단독')}${seg(s.mEtc || 0, '--gray2', '기타')}</div>
+    <div class="legend"><span><i style="background:var(--s1)"></i>CS안내 ${num(s.mCs)}건</span><span><i style="background:var(--s2)"></i>원격지원 ${num(s.mRemote)}건</span><span><i style="background:var(--s3)"></i>방문점검 ${num(s.mVisit)}건</span>${s.mToss ? `<span><i style="background:var(--purple)"></i>토플 단독 ${num(s.mToss)}건</span>` : ''}${s.mEtc ? `<span><i style="background:var(--gray2)"></i>기타 ${num(s.mEtc)}건</span>` : ''}</div>`;
 }
 const storeName = k => (SM[k] || {}).name || k;
 
