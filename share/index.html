@@ -1335,9 +1335,9 @@ function recDetail(r) {
     // 원격 지원 한 칸: 처음 손댄 시각(확인 · 착수 중 빠른 것). 확인과 착수가 1분 넘게 벌어졌을 때만 두 시각을 따로 적습니다.
     const t0 = [R.ackAt, R.startAt, R.start].filter(Boolean).sort((a, b) => a - b)[0] || null;
     const split = R.ackAt && R.startAt && Math.abs(R.startAt - R.ackAt) >= 60000 ? `확인 ${dt(R.ackAt).slice(11)} · 착수 ${dt(R.startAt).slice(11)}` : '';
-    steps.push({ name: '원격 지원', color: 'var(--s2)', t: t0, time: t0 ? dt(t0).slice(5) : '착수 전', who: R.startBy || R.ackBy || R.owner, text: split });
+    steps.push({ name: '원격 지원', color: 'var(--s2)', t: t0, time: t0 ? dt(t0).slice(5) : R.ackBy || R.startBy ? '시각 미확인' : '착수 전', who: R.startBy || R.ackBy || R.owner, text: split });
     // 처리 결과: 결과 이모지가 있거나 완료된 건만 칸을 만들고, 진행 중이면 댓글로 본 내용만 '처리 중' 칸에 둡니다(마지막 '진행 중' 칸과 겹치지 않게).
-    if (R.result || R.action || done) steps.push({ name: '조치 내용', badge: R.result || '', color: R.result || done ? 'var(--green)' : 'var(--orange)', t: R.resultAt || null, time: R.resultAt ? dt(R.resultAt).slice(5) : R.result || done ? '완료' : '진행 중', text: R.action || '' });
+    if (R.result || R.action || done) steps.push({ name: '조치 내용', badge: R.result || '', color: R.result || done ? 'var(--green)' : 'var(--orange)', t: R.resultAt || null, time: R.resultAt ? dt(R.resultAt).slice(5) : R.result || done ? '시각 미확인' : '진행 중', text: R.action || '' });
   }
   // 협업채널에 같은 매장이 나온 글(상담 하루 전 ~ 사흘 뒤): 글 요약과 댓글로 본 처리 결과
   (CANDS || []).filter(c => c.channel === '협업채널' && c.store && String(c.store).split(/,\s*/).map(skey).includes(r.skey)).forEach(c => {
