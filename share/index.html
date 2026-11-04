@@ -828,6 +828,7 @@ function buildModel(raw) {
       toss: c.tossAsked ? { asked: P(c.tossAsked), done: P(c.tossDone) } : null, csOwner: c.owner || '', csAction: c.action || '', issue: iss || null, remote: null, visit: null };
   }).filter(Boolean);
   // 같은 건을 두 번 올린 경우: 같은 매장이 5분 안에 다시 들어오면 한 건으로 합칩니다(5분이 넘으면 각각 따로).
+  // 단, 시트(상담 내역)에 없는 슬랙 글이 같은 매장 상담과 30분 안이면 같은 상담을 다시 올린 것으로 보고 합칩니다(슬랙 기준 1건).
   // 인입 시각은 처음 올린 것, 처리 내역(슬랙 상태 · 원격 담당 · 조치)은 마지막에 올린 것. 접수번호는 콜라비 상담 내역에 남은 쪽을 씁니다.
   {
     const groups = {}, drop = new Set();
@@ -836,7 +837,8 @@ function buildModel(raw) {
       list.sort((a, b) => a.at - b.at);
       for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
         const a = list[i], b = list[j];
-        if (drop.has(a) || drop.has(b) || b.at - a.at > 5 * 60000) continue;
+        // 5분 안 같은 매장 = 같은 건. 한쪽이 시트에 없는 슬랙 글(같은 상담을 워크플로로 다시 올린 것)이면 30분 안까지 같은 건.
+        if (drop.has(a) || drop.has(b) || b.at - a.at > ((a.slackOnly !== b.slackOnly) ? 30 : 5) * 60000) continue;
         const keep = a.slackOnly && !b.slackOnly ? b : a, other = keep === a ? b : a;
         keep.at = a.at; keep.date = ymd(a.at);
         if (b.slack) keep.slack = b.slack;
@@ -862,7 +864,9 @@ function buildModel(raw) {
     });
     return best;
   };
-  const orphans = [];
+  const orphans = [], usedIds = new Set();
+  // 이어지지 않은 원격 기록 번호: 날짜-R시분(같은 분에 둘이면 -2, -3)
+  const orphanId = base => { let id = base, n = 2; while (usedIds.has(id)) id = `${base}-${n++}`; usedIds.add(id); return id; };
   const ocRec = (o) => { const st = ensure(o.store, 'oc'); const r = Object.assign({ src: 'oc', date: ymd(o.at), cat: '원격팀 자체 인입', route: '원격팀', cx: '', toss: null, csOwner: '', csAction: '', issue: null, remote: null, visit: null, doneAt: null, minutes: null }, o, { store: st ? st.name : plainName(o.store), skey: st ? st.key : '' }); orphans.push(r); (byStore[r.skey] = byStore[r.skey] || []).push(r); return r; };
 
   // 2) 원격 AS → 같은 매장, 상담 뒤 3일 안(상담보다 30분 이른 기록까지)의 가장 가까운 상담. 원격지원 상담을 먼저 고릅니다.
@@ -875,10 +879,12 @@ function buildModel(raw) {
     const remote = { owner: a.emp, start: a.at, req: a.req, action: a.note, intake: a.intake, status: a.status, cat: a.cat || 'as', linked: true,
       ackBy: a.ackBy || '', ackAt: P(a.ackAt), startBy: a.startBy || '', startAt: P(a.startAt), result: a.result || '', resultAt: P(a.resultAt) };
     const byTf = a.tfTs ? RECS.find(x => x.src === 'cs' && !(x.remote && x.remote.linked) && x.slack && String(x.slack.link || '').includes('p' + a.tfTs.replace('.', ''))) : null;
-    const c = byTf || nearest(k, a.at, LINK.AS_EARLY_MIN, LINK.AS_DAYS, x => x.src === 'cs' && !(x.remote && x.remote.linked), x => x.method === '원격지원' || x.method === '방문점검', x => sameDevice(x.channel, `${a.req} ${a.note}`) ? 0 : 240);
+    // 매장명이 없는 원격 요청(원격지원 요청 워크플로): 앞뒤 10분 안 원격지원 상담 중 가장 가까운 것에 붙임
+    const byTime = !byTf && !k ? RECS.filter(x => x.src === 'cs' && !(x.remote && x.remote.linked) && Math.abs(x.at - a.at) <= 10 * 60000 && (x.method === '원격지원' || /원격/.test(x.cat))).sort((x, y) => Math.abs(x.at - a.at) - Math.abs(y.at - a.at))[0] : null;
+    const c = byTf || byTime || nearest(k, a.at, LINK.AS_EARLY_MIN, LINK.AS_DAYS, x => x.src === 'cs' && !(x.remote && x.remote.linked), x => x.method === '원격지원' || x.method === '방문점검', x => sameDevice(x.channel, `${a.req} ${a.note}`) ? 0 : 240);
     if (c) { c.remote = Object.assign(remote, { handoff: c.at }); asLinked++; }
     // 콜라비(상담 내역)와 대조해 같은 매장 상담 이력이 없으면 원격팀 자체 인입입니다. 단, CX 이관 표시(컴포즈 이모지)가 있으면 CX 인입(콜라비)입니다.
-    else ocRec({ id: `${a.date.slice(2).replace(/-/g, '.')}-R${pad(orphans.length + 1)}`, inflow: a.cx ? '콜라비' : '원격팀', cxHandoff: !!a.cx, unlinked: true, store: a.store || a.branch || '매장 미기재', at: a.at, channel: guessChannel(`${a.req} ${a.note}`),
+    else ocRec({ id: orphanId(`${a.date.slice(2).replace(/-/g, '.')}-R${hm(a.at).replace(':', '')}`), inflow: a.cx ? '콜라비' : '원격팀', cxHandoff: !!a.cx, unlinked: true, store: a.store || a.branch || '매장 미기재', at: a.at, channel: guessChannel(`${a.req} ${a.note}`),
       q: a.req, a: '', method: '원격지원', status: a.status === 'done' ? '완료' : '처리중', remote: Object.assign(remote, { handoff: null }) });
     const st = SM[k]; if (st) st.events.push({ date: a.date, type: 'AS', src: '원격', text: [a.req, a.note].filter(Boolean).join(' → '), by: a.emp, items: mentionItems(`${a.req} ${a.note}`), rec: c ? c.id : null });
   });
@@ -1427,10 +1433,11 @@ function recTimeline(r) {
   const said = new Set([brief(r.q || r.cat)]), uniq = t => { const b = brief(t); if (!b || said.has(b)) return ''; said.add(b); return b; };
   const first = P(S.firstAt);
   // 절차 안내('확인 후 회신', '~ 예정 안내', '전달 예정')는 빼고 실제로 안내한 내용만
-  if (r.a && !/회신\s*예정|확인\s*후\s*회신|예정\s*안내|전달\s*예정|연락\s*예정/.test(cleanText(r.a))) add(2, '1차 안내 · CX', r.at, r.a);
+  if (r.a && cleanText(r.a).replace(/\s/g, '').length >= 8 && !/회신\s*예정|확인\s*후\s*회신|예정\s*안내|전달\s*예정|연락\s*예정/.test(cleanText(r.a))) add(2, '1차 안내 · CX', r.at, r.a);
   if (first) add(2, '1차 확인', first, S.by ? `${S.by} 확인` : '담당자 확인');
   if (R && (R.linked || R.req || S.remoteAt)) add(3, '원격 지원 요청 → 원격팀', P(S.remoteAt) || R.start || R.handoff, uniq(R.req) || '원격팀에 지원 요청');
-  if (R && (R.result || R.action)) add(4, '원격 2차 처리', R.resultAt, uniq(R.action || R.result) || R.result, /부재/.test(R.result || '') ? '부재' : R.result || r.status === '완료' ? '해결' : '진행 중');
+  // 원격 2차 처리는 원격팀 기록이 실제로 이어진 건만(상담의 조치 내용은 최종 완료의 처리 결과로)
+  if (R && R.linked && (R.result || R.action)) add(4, '원격 2차 처리', R.resultAt, uniq(R.action || R.result) || R.result, /부재/.test(R.result || '') ? '부재' : R.result || r.status === '완료' ? '해결' : '진행 중');
   if (T) {
     add(4, '토스플레이스 이관', T.asked, (T.slack && T.slack.question) || '토스플레이스에 확인 요청', T.done ? '회신 받음' : r.status === '완료' ? '이관' : '토플 확인중');
     if (T.done) add(4, '토스플레이스 회신', T.done, (T.slack && T.slack.answer) || '회신 받음');
@@ -1438,7 +1445,8 @@ function recTimeline(r) {
   if (V) add(4, `현장 ${V.kind && V.kind !== '방문' ? V.kind : '방문'}`, V.pending ? null : (() => { const d = new Date(V.date); d.setHours(18, 0, 0, 0); return d; })(), V.action || V.equip || '', V.pending ? '방문 예정' : '방문 완료');
   if (r.status === '완료') {
     const endAt = r.doneAt || P(S.doneAt) || (r.minutes != null ? new Date(r.at.getTime() + r.minutes * 60000) : null);
-    add(5, '최종 완료', endAt, uniq(S.action || (r.caseSum && r.caseSum.result)) || '처리 완료', '완료');
+    const result = S.action || r.csAction || (r.caseSum && r.caseSum.result) || (R && (R.action || R.result)) || (r.method === 'CS안내' ? r.a : '') || (r.toss && r.toss.slack && r.toss.slack.answer);
+    add(5, '최종 완료', endAt, result ? `처리 결과: ${brief(result, 90)}` : '처리 결과 기록 없음', '완료');
   }
   items.sort((x, y) => x.step - y.step || (x.t ? x.t.getTime() : Infinity) - (y.t ? y.t.getTime() : Infinity));
   const tagCls = t => /해결|완료|회신/.test(t) ? 'ok' : /이관|토플/.test(t) ? 'purple' : /부재|진행|예정/.test(t) ? 'warn' : '';
