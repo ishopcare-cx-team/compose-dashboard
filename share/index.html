@@ -118,8 +118,7 @@
   .ov-tile{background:var(--canvas); border-radius:16px; padding:16px 18px; box-shadow:var(--shadow); border-left:4px solid var(--c,var(--accent-line))}
   .ov-tile .ov-name{font-size:14px; font-weight:600; color:var(--gray); display:flex; align-items:center; gap:6px}
   .ov-tile .ov-name{white-space:nowrap} .ov-tile .ov-name .src-tag{font-size:10.5px; padding:1px 5px}
-  /* 카드 7개: 넓은 화면은 한 줄, 좁으면 4 · 3개씩 */
-  @media (max-width:1500px){ .ov-tiles[style*="--n:7"]{grid-template-columns:repeat(4,minmax(0,1fr))} }
+  .ov-tiles[style*="--n:7"] .ov-tile .ov-name{font-size:13px}
   .ov-tile .ov-val{font-size:34px; font-weight:800; letter-spacing:-.03em; margin-top:9px; line-height:1}
   .ov-tile .ov-val small{font-size:15px; font-weight:600; color:var(--gray2); margin-left:3px}
   .ov-tile .ov-sub{font-size:12.5px; font-weight:600; margin-top:7px; color:var(--gray2)}
@@ -433,6 +432,13 @@
   .rtl time{font-variant-numeric:tabular-nums; color:var(--gray2); white-space:nowrap} .rtl b{font-weight:700} .rtl p{margin:2px 0 0; color:var(--ink)}
   @media (max-width:640px){ .rtl li{grid-template-columns:1fr} }
   .vp-box.cause{background:var(--surface2)}
+  .tlc{display:flex; align-items:stretch; gap:8px; overflow-x:auto; padding:6px 2px 10px}
+  .tlc-card{flex:0 0 230px; border-radius:14px; padding:12px 14px; background:var(--pc); color:var(--ink); font-size:13px; line-height:1.55}
+  .tlc-card p{margin:4px 0 0; white-space:normal} .tlc-h{font-weight:800; font-size:13.5px} .tlc-t{font-size:12px; color:var(--gray2); font-variant-numeric:tabular-nums; margin-top:2px}
+  .tlc-arrow{align-self:center; color:var(--gray2); font-size:18px}
+  .pc0{--pc:#e8f0fe} .pc1{--pc:#fff1e0} .pc2{--pc:#e6f6ec} .pc3{--pc:#f1ebfd} .pc4{--pc:#fde9ef} .pc5{--pc:#e5f6f6}
+  @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .pc0{--pc:#1f2a3d} :root:not([data-theme="light"]) .pc1{--pc:#3a2c1a} :root:not([data-theme="light"]) .pc2{--pc:#1c3226} :root:not([data-theme="light"]) .pc3{--pc:#2c2540} :root:not([data-theme="light"]) .pc4{--pc:#3a2229} :root:not([data-theme="light"]) .pc5{--pc:#1c3333} }
+  :root[data-theme="dark"] .pc0{--pc:#1f2a3d} :root[data-theme="dark"] .pc1{--pc:#3a2c1a} :root[data-theme="dark"] .pc2{--pc:#1c3226} :root[data-theme="dark"] .pc3{--pc:#2c2540} :root[data-theme="dark"] .pc4{--pc:#3a2229} :root[data-theme="dark"] .pc5{--pc:#1c3333}
   .rec-link{display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:10px; padding:10px 12px; border:1px solid var(--line); border-radius:12px; background:var(--canvas); font-size:13px}
   .rec-link .rl-k{font-size:11.5px; font-weight:800; color:var(--accent)} .rec-link .rl-t{flex:1 1 220px; min-width:0; color:var(--gray)} .rec-link .btn{margin-left:auto}
   .cs-tl{list-style:none; margin:0; padding:0 0 0 12px; border-left:2px solid var(--line); display:flex; flex-direction:column; gap:6px}
@@ -841,7 +847,7 @@ function buildModel(raw) {
     const inflow = viaPhone ? '법인폰·수기' : c.slackOnly && sl && sl.source && sl.source !== '콜라비' ? (/^(수기|법인폰)$/.test(sl.source) ? '법인폰·수기' : sl.source) : /현장/.test(c.route || '') ? '현장' : /원격/.test(c.route || '') ? '원격팀' : '콜라비';
     return { id: c.receipt || (c.slackOnly ? `${c.at.slice(2, 10).replace(/-/g, '.')}-S${c.at.slice(11, 16).replace(':', '')}` : `CS-${c.at}`), src: 'cs', inflow, slackOnly: !!c.slackOnly, at, date: ymd(at), store: st ? st.name : (c.store || '—'), skey: st ? st.key : '', slack: sl,
       channel: iss && CHANNELS.includes(iss.channel) ? iss.channel : CHANNELS.includes(aiChannel) ? aiChannel : guessChannel([c.major, c.middle, c.minor, c.question].join(' ')),
-      cat: [c.major, c.middle].filter(Boolean).join(' · ') || '미분류', q: c.qTidy || c.question, a: c.qTidy ? (c.aTidy || '') : c.answer, qRaw: c.questionRaw || c.question, aRaw: c.answerRaw || c.answer, tidy: !!c.qTidy, caseSum: c.caseSum || null, caseKey: c.receipt || `${c.at}|${c.store}`, caseFix: c.caseFix || '', caseDone: !!(c.caseSum && /해결/.test(c.caseSum.state || '')) && c.caseFix !== '해제', route: c.route || '—', cx: c.cx || '',
+      cat: [c.major, c.middle].filter(Boolean).join(' · ') || '미분류', q: c.qTidy || c.question, a: c.qTidy ? (c.aTidy || '') : c.answer, qRaw: c.questionRaw || c.question, aRaw: c.answerRaw || c.answer, qFull: c.question, aFull: c.answer, tidy: !!c.qTidy, caseSum: c.caseSum || null, caseKey: c.receipt || `${c.at}|${c.store}`, caseFix: c.caseFix || '', caseDone: !!(c.caseSum && /해결/.test(c.caseSum.state || '')) && c.caseFix !== '해제', route: c.route || '—', cx: c.cx || '',
       method: c.method || '—', status: c.status || '처리중', doneAt: done, minutes: validMinutes(c.minutes != null ? c.minutes : done ? (done - at) / 60000 : null),
       toss: c.tossAsked ? { asked: P(c.tossAsked), done: P(c.tossDone) } : null, csOwner: c.owner || '', csAction: c.action || '', issue: iss || null, remote: null, visit: null };
   }).filter(Boolean);
@@ -1458,33 +1464,42 @@ function flowHtml(steps) {
 // 인입 현황 타임라인: ① 인입 ② 1차 확인 · 안내 ③ 원격 지원 요청 ④ 원격 2차 처리(해결) 또는 토스플레이스 이관 ⑤ 최종 완료. 시각은 초까지.
 // 타임라인 글: 첫 문장만 70자 안으로(다듬은 한 줄이 있으면 그것)
 const brief = (t, n = 70) => { const c = cleanText(t, 400); const m = c.match(/^.+?(?:다|요|음|함|됨|임)[.!?]?(?=\s|$)/); return cleanText(m ? m[0] : c, n); };
-function recTimeline(r) {
+// 타임라인 단계: text = 간략 타임라인용(첫 문장), full = 아래 가로 카드용(상담 내역 기준 상세, 오타 · 기호는 다듬은 글/정리로 제거)
+function tlItems(r) {
   const S = r.slack || {}, R = r.remote, T = r.toss, V = r.visit, items = [];
-  const add = (step, label, t, text, tag) => items.push({ step, label, t: t || null, text: text || '', tag: tag || '' });
+  const add = (step, label, t, text, tag, full) => items.push({ step, label, t: t || null, text: text || '', tag: tag || '', full: full || text || '' });
   const via = r.src === 'oc' ? (r.remote ? '원격' : '현장') : r.inflow === '콜라비' ? 'CX' : r.inflow === '법인폰·수기' ? '법인폰' : r.inflow || 'CX';
-  add(1, `인입 · ${via}`, r.at, r.q || r.cat);
+  add(1, `인입 · ${via}`, r.at, r.q || r.cat, '', [r.qFull || r.q, r.cat ? `문의유형: ${r.cat}` : '', r.channel ? `장비·채널: ${r.channel}` : ''].filter(Boolean).join('\n'));
   const said = new Set([brief(r.q || r.cat)]), uniq = t => { const b = brief(t); if (!b || said.has(b)) return ''; said.add(b); return b; };
   const first = P(S.firstAt);
   // 절차 안내('확인 후 회신', '~ 예정 안내', '전달 예정')는 빼고 실제로 안내한 내용만
-  if (r.a && cleanText(r.a).replace(/\s/g, '').length >= 8 && !/회신\s*예정|확인\s*후\s*회신|예정\s*안내|전달\s*예정|연락\s*예정/.test(cleanText(r.a))) add(2, '1차 안내 · CX', r.at, r.a);
+  if (r.a && cleanText(r.a).replace(/\s/g, '').length >= 8 && !/회신\s*예정|확인\s*후\s*회신|예정\s*안내|전달\s*예정|연락\s*예정/.test(cleanText(r.a))) add(2, '1차 안내 · CX', r.at, r.a, '', r.aFull || r.a);
   if (first) add(2, '1차 확인', first, S.by ? `${S.by} 확인` : '담당자 확인');
-  if (R && (R.linked || R.req || S.remoteAt)) add(3, '원격 지원 요청 → 원격팀', P(S.remoteAt) || R.start || R.handoff, uniq(R.req) || '원격팀에 지원 요청');
+  if (R && (R.linked || R.req || S.remoteAt)) add(3, '원격 지원 요청 → 원격팀', P(S.remoteAt) || R.start || R.handoff, uniq(R.req) || '원격팀에 지원 요청', '', [R.req || '원격팀에 지원 요청', R.owner ? `원격 담당: ${R.owner}` : ''].filter(Boolean).join('\n'));
   // 원격 2차 처리는 원격팀 기록이 실제로 이어진 건만(상담의 조치 내용은 최종 완료의 처리 결과로)
   const doneT = r.doneAt || P(S.doneAt), lateRec = R && R.resultAt && doneT && R.resultAt > doneT;
-  if (R && R.linked && (R.result || R.action)) add(4, lateRec ? `원격 2차 처리 (기록 업로드 ${dts(R.resultAt)})` : '원격 2차 처리', lateRec ? null : R.resultAt, uniq(R.action || R.result) || R.result, /부재/.test(R.result || '') ? '부재' : R.result || r.status === '완료' ? '해결' : '진행 중');
+  if (R && R.linked && (R.result || R.action)) add(4, lateRec ? `원격 2차 처리 (기록 업로드 ${dts(R.resultAt)})` : '원격 2차 처리', lateRec ? null : R.resultAt, uniq(R.action || R.result) || R.result, /부재/.test(R.result || '') ? '부재' : R.result || r.status === '완료' ? '해결' : '진행 중', [R.result ? `결과: ${R.result}` : '', R.action].filter(Boolean).join('\n'));
   if (T) {
     add(4, '토스플레이스 이관', T.asked, (T.slack && T.slack.question) || '토스플레이스에 확인 요청', T.done ? '회신 받음' : r.status === '완료' ? '이관' : '토플 확인중');
     if (T.done) add(4, '토스플레이스 회신', T.asked && T.done - T.asked < 60000 ? null : T.done, (T.slack && T.slack.answer) || '회신 받음');
   }
-  if (V) add(4, `현장 ${V.kind && V.kind !== '방문' ? V.kind : '방문'}`, V.pending ? null : (() => { const d = new Date(V.date); d.setHours(18, 0, 0, 0); return d; })(), V.action || V.equip || '', V.pending ? '방문 예정' : '방문 완료');
+  if (V) add(4, `현장 ${V.kind && V.kind !== '방문' ? V.kind : '방문'}`, V.pending ? null : (() => { const d = new Date(V.date); d.setHours(18, 0, 0, 0); return d; })(), V.action || V.equip || '', V.pending ? '방문 예정' : '방문 완료', [V.action, V.equip ? `장비: ${V.equip}` : '', V.by ? `담당: ${V.by}` : ''].filter(Boolean).join('\n'));
   if (r.status === '완료') {
     const endAt = r.doneAt || P(S.doneAt) || (r.minutes != null ? new Date(r.at.getTime() + r.minutes * 60000) : null);
     const result = S.action || r.csAction || (r.caseSum && r.caseSum.result) || (R && (R.action || R.result)) || (r.method === 'CS안내' ? r.a : '') || (r.toss && r.toss.slack && r.toss.slack.answer);
-    add(5, '최종 완료', endAt, result ? `처리 결과: ${brief(result, 90)}` : '처리 결과 기록 없음', '완료');
+    add(5, '최종 완료', endAt, result ? `처리 결과: ${brief(result, 90)}` : '처리 결과 기록 없음', '완료',
+      [result ? `처리 결과: ${result}` : '처리 결과 기록 없음', r.minutes != null ? `처리 시간: ${r.minutesBy === '상담 중 해결' ? '상담 중 해결' : fmtMin(r.minutes)}` : ''].filter(Boolean).join('\n'));
   }
-  items.sort((x, y) => x.step - y.step || (x.t ? x.t.getTime() : Infinity) - (y.t ? y.t.getTime() : Infinity));
-  const tagCls = t => /해결|완료|회신/.test(t) ? 'ok' : /이관|토플/.test(t) ? 'purple' : /부재|진행|예정/.test(t) ? 'warn' : '';
-  return `<ol class="rtl">${items.map(x => `<li class="s${x.step}"><time>${esc(x.t ? dts(x.t) : '')}</time><div><b>${esc(x.label)}</b>${x.tag ? ` <span class="tag ${tagCls(x.tag)}">${esc(x.tag)}</span>` : ''}${x.text ? `<p>${esc(brief(x.text))}</p>` : ''}</div></li>`).join('')}</ol>`;
+  return items.sort((x, y) => x.step - y.step || (x.t ? x.t.getTime() : Infinity) - (y.t ? y.t.getTime() : Infinity));
+}
+const tlTagCls = t => /해결|완료|회신/.test(t) ? 'ok' : /이관|토플/.test(t) ? 'purple' : /부재|진행|예정/.test(t) ? 'warn' : '';
+function recTimeline(r) {
+  return `<ol class="rtl">${tlItems(r).map(x => `<li class="s${x.step}"><time>${esc(x.t ? dts(x.t) : '')}</time><div><b>${esc(x.label)}</b>${x.tag ? ` <span class="tag ${tlTagCls(x.tag)}">${esc(x.tag)}</span>` : ''}${x.text ? `<p>${esc(brief(x.text))}</p>` : ''}</div></li>`).join('')}</ol>`;
+}
+// 아래 토글: 타임라인 단계별 가로 카드(카드마다 다른 파스텔 단색), 상세 글은 줄 단위로
+function tlCards(r) {
+  const items = tlItems(r);
+  return `<details class="cs-steps"><summary>처리 현황 보기</summary><div class="tlc">${items.map((x, i) => `${i ? '<div class="tlc-arrow">→</div>' : ''}<div class="tlc-card pc${i % 6}"><div class="tlc-h">${esc(x.label)}${x.tag ? ` <span class="tag ${tlTagCls(x.tag)}">${esc(x.tag)}</span>` : ''}</div><div class="tlc-t">${esc(x.t ? dts(x.t) : '시각 기록 없음')}</div>${String(x.full || '').split('\n').filter(Boolean).map(l => `<p>${esc(cleanText(l, 400))}</p>`).join('')}</div>`).join('')}</div></details>`;
 }
 function recDetail(r) {
   const steps = [], done = r.status === '완료';
@@ -1536,7 +1551,7 @@ function recDetail(r) {
   const sumHtml = C && C.result ? `<div class="case-sum"><div class="cs-head"><span class="tag ${stCls(C.state)}">${esc(C.state || '정리')}</span><b>${esc(C.result)}</b></div>${C.todo ? `<div class="cs-todo"><span>남은 일</span>${esc(C.todo)}</div>` : ''}
     <div class="hint">결과 · 남은 일은 Claude가 관련 기록을 읽고 정리한 내용입니다.${/해결/.test(C.state || '') && VIEWER.internal && mode !== 'share' ? ` ${r.caseFix === '해제' ? '완료 판단을 해제한 건입니다(콜라비 상태를 따름).' : r.statusByCase ? `콜라비 상태(${esc(r.statusRaw)}) 대신 기록으로 완료 처리했습니다.` : ''} <button class="btn sm" data-casefix="${esc(r.caseKey)}" data-v="${r.caseFix === '해제' ? '적용' : '해제'}">${r.caseFix === '해제' ? '완료 판단 다시 적용' : '완료 판단 해제'}</button>` : ''}</div></div>` : '';
   const raw = r.tidy && VIEWER.internal && mode !== 'share' ? `<details class="raw-text"><summary>원문 보기</summary><div><b>문의</b> ${esc(r.qRaw || '—')}</div><div><b>안내</b> ${esc(r.aRaw || '—')}</div></details>` : '';
-  return `<div class="flow"><div class="facts">${chips.map(([v, k]) => `<span>${k} <b>${esc(v)}</b></span>`).join('')}${r.slackOnly ? '<span class="tag warn">상담 내역 입력 전 · 슬랙 기준</span>' : ''}${r.src === 'oc' && CS_LAST && r.date > CS_LAST ? '<span class="tag warn">콜라비 입력 전일 수 있음</span>' : ''}${r.slack && r.slack.link ? `<a class="link internal" href="${esc(r.slack.link)}" target="_blank" rel="noopener">슬랙에서 보기 ↗</a>` : ''}</div>${sumHtml}${recTimeline(r)}<details class="cs-steps"><summary>처리 현황 보기</summary>${flowHtml(steps)}</details>${raw}</div>`;
+  return `<div class="flow"><div class="facts">${chips.map(([v, k]) => `<span>${k} <b>${esc(v)}</b></span>`).join('')}${r.slackOnly ? '<span class="tag warn">상담 내역 입력 전 · 슬랙 기준</span>' : ''}${r.src === 'oc' && CS_LAST && r.date > CS_LAST ? '<span class="tag warn">콜라비 입력 전일 수 있음</span>' : ''}${r.slack && r.slack.link ? `<a class="link internal" href="${esc(r.slack.link)}" target="_blank" rel="noopener">슬랙에서 보기 ↗</a>` : ''}</div>${sumHtml}${recTimeline(r)}${tlCards(r)}${raw}</div>`;
 }
 function viewRecords() {
   const scoped = RECS.filter(r => inPeriod(r.at)), rows = recFilter('records', scoped, REC_TAGS), s = stats(rows), p = paged('records', rows, 30);
@@ -1768,6 +1783,7 @@ function visitOnlyCard(v) {
 }
 // 처리 내역 상세: 타임라인 대신 현상 · 처리 과정 · 결과 · 알게 된 원인
 function procDetail(x) {
+  if (x.rec) return recDetail(x.rec);
   const r = x.rec, C = (r && r.caseSum) || {}, R = r && r.remote, T = r ? r.toss : x.tossOnly, V = r ? r.visit : x.visit;
   const issue = C.issue || (r ? r.q : (T && T.slack && T.slack.question) || (V ? `현장 ${V.kind} 요청 · ${V.equip || ''}` : ''));
   const steps = [];
