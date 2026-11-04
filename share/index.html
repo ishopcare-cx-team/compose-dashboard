@@ -403,6 +403,8 @@
   .case-sum{background:var(--canvas); border:1px solid var(--line); border-radius:14px; padding:14px 16px; margin:10px 0; display:flex; flex-direction:column; gap:8px}
   .cs-head{display:flex; gap:8px; align-items:baseline; flex-wrap:wrap} .cs-head b{font-size:15px}
   .cs-todo{font-size:13px} .cs-todo span{font-weight:700; color:var(--orange); margin-right:6px}
+  .rec-link{display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:10px; padding:10px 12px; border:1px solid var(--line); border-radius:12px; background:var(--canvas); font-size:13px}
+  .rec-link .rl-k{font-size:11.5px; font-weight:800; color:var(--accent)} .rec-link .rl-t{flex:1 1 220px; min-width:0; color:var(--gray)} .rec-link .btn{margin-left:auto}
   .cs-tl{list-style:none; margin:0; padding:0 0 0 12px; border-left:2px solid var(--line); display:flex; flex-direction:column; gap:6px}
   .cs-tl li{display:grid; grid-template-columns:86px 78px 1fr; gap:8px; font-size:13px; position:relative} .cs-tl li::before{content:""; position:absolute; left:-17px; top:6px; width:8px; height:8px; border-radius:50%; background:var(--accent)}
   .cs-tl time{font-variant-numeric:tabular-nums; color:var(--gray2)} .cs-tl em{font-style:normal; font-weight:700}
@@ -1570,10 +1572,16 @@ const prioTag = p => `<span class="tag ${/^긴급/.test(p) ? 'red' : /^높음/.t
 // 상세 칸: 세부 정보(왼쪽) + 색 상자(현상 · 요청 · 조치)
 const infoBox = rows => `<div class="vp-box info"><div class="vp-h">세부 정보</div>${rows.map(([k, v]) => `<div class="vp-kv"><span>${esc(k)}</span><b>${esc(v || '—')}</b></div>`).join('')}</div>`;
 const panel = (cls, icon, title, text) => `<div class="vp-box ${cls}"><div class="vp-h"><i>${icon}</i>${esc(title)}</div><div class="vp-t">${text ? esc(text) : '<span class="muted">—</span>'}</div></div>`;
+// 연결된 상담: 흐름 전체 대신 한 줄(접수번호 · 시각 · 매장 · 인입 · 상태 · 짧은 인입 내용)과 '인입 현황에서 보기' 링크만.
+function recLink(r) {
+  const brief = cleanText((r.caseSum && r.caseSum.result) || r.q || r.cat || '', 70);
+  return `<div class="rec-link"><span class="rl-k">연결된 상담</span><b>${esc(r.id)}</b><span class="muted">${dt(r.at).slice(5)}</span><span>${esc(r.store)}</span>${inflowTag(r.inflow)}${statusBadge(r.status)}
+    <span class="rl-t">${esc(brief)}</span><button class="btn sm" data-gorec="${esc(r.id)}">인입 현황에서 보기 →</button></div>`;
+}
 function issueDetail(i) {
   const rec = i.receipt && RECS.find(r => r.id === i.receipt);
   return `<div class="vp" style="--n:2">${infoBox([['유형', i.type], ['분류', i.category], ['발생 경로', i.route], ['영업 영향', i.impact], ['접수번호', i.receipt], ['담당', i.owner], ['완료일', i.doneDate]])}${panel('asis', '!', '내용', i.content)}${panel('act', '✓', '조치 내용', i.action)}</div>${i.slackLink ? `<a class="link" href="${esc(i.slackLink)}" target="_blank" rel="noopener">슬랙 원문 보기 ↗</a>` : ''}`
-    + (rec ? `<div class="attach" style="margin-top:6px">연결된 상담 · ${esc(rec.id)}</div>${recDetail(rec)}` : '');
+    + (rec ? recLink(rec) : '');
 }
 const vocDetail = v => `<div class="vp" style="--n:3">${infoBox([['상황·빈도', v.condition], ['동일 이슈 매장', v.sameStores], ['담당', v.owner]])}${panel('asis', '!', '현상 As-Is', v.asIs)}${panel('tobe', '→', '요청사항 To-Be', v.toBe)}${panel('act', '✓', '조치·답변', v.action)}</div>${v.slackLink ? `<a class="link" href="${esc(v.slackLink)}" target="_blank" rel="noopener">슬랙 원문 보기 ↗</a>` : ''}`;
 // 처리 내역: 원격팀 대시보드와 같은 처리 구분 8가지. 원격팀 기록은 원격팀 분류(cat)를, CS 상담은 상담유형을 대응표 기준으로 나눕니다.
@@ -2043,6 +2051,9 @@ document.getElementById('slackNowBtn').addEventListener('click', e => {
   google.script.run.withSuccessHandler(() => { end('반영 완료 ✓'); load(false, true); }).withFailureHandler(err => end('실패: ' + ((err && err.message) || err).slice(0, 30))).collectSlackNow();
 });
 host.addEventListener('click', e => {
+  // 연결된 상담 링크: 인입 현황으로 옮겨 그 건만 검색하고 펼침(그 달로 기간을 맞춤)
+  const go = e.target.closest('[data-gorec]');
+  if (go) { const r = RECS.find(x => x.id === go.dataset.gorec); if (r) { perInit(); PER.mode = 'month'; PER.month = r.date.slice(0, 7); view = 'records'; flt('records').q = r.id; OPEN.add('rec:' + r.id); render(); window.scrollTo(0, 0); } return; }
   if (e.target.closest('[data-closeall]')) { OPEN.clear(); render(); return; }
   const rs = e.target.closest('[data-freset]'); if (rs) { const k = rs.closest('[data-fk]').dataset.fk; F[k] = { store: '', q: '', tags: {} }; PG[k] = 1; render(); return; }
   const ht = e.target.closest('[data-hct]'); if (ht) { hcType = ht.dataset.hct; render(); return; }
