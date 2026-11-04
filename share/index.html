@@ -816,19 +816,16 @@ function buildModel(raw) {
       method: c.method || '—', status: c.status || '처리중', doneAt: done, minutes: validMinutes(c.minutes != null ? c.minutes : done ? (done - at) / 60000 : null),
       toss: c.tossAsked ? { asked: P(c.tossAsked), done: P(c.tossDone) } : null, csOwner: c.owner || '', csAction: c.action || '', issue: iss || null, remote: null, visit: null };
   }).filter(Boolean);
-  // 같은 건을 슬랙에 두 번 올린 경우(같은 매장 · 같은 날 · 3시간 안이고, 한쪽이 '슬랙만 있음'(시트에서 지운 쪽)이거나 문의가 같음): 한 건으로 합칩니다.
+  // 같은 건을 두 번 올린 경우: 같은 매장이 5분 안에 다시 들어오면 한 건으로 합칩니다(5분이 넘으면 각각 따로).
   // 인입 시각은 처음 올린 것, 처리 내역(슬랙 상태 · 원격 담당 · 조치)은 마지막에 올린 것. 접수번호는 콜라비 상담 내역에 남은 쪽을 씁니다.
   {
-    const normQ = t => String(t || '').replace(/[^가-힣a-z0-9]/gi, '').slice(0, 30);
     const groups = {}, drop = new Set();
     RECS.forEach(r => { if (r.skey) (groups[r.skey + '|' + r.date] = groups[r.skey + '|' + r.date] || []).push(r); });
     Object.values(groups).forEach(list => {
       list.sort((a, b) => a.at - b.at);
       for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
         const a = list[i], b = list[j];
-        if (drop.has(a) || drop.has(b) || b.at - a.at > 3 * 36e5) continue;
-        const sameQ = normQ(a.qRaw) && normQ(a.qRaw) === normQ(b.qRaw);
-        if (!sameQ && !((a.slackOnly || b.slackOnly) && (a.cat === b.cat || a.channel === b.channel))) continue;
+        if (drop.has(a) || drop.has(b) || b.at - a.at > 5 * 60000) continue;
         const keep = a.slackOnly && !b.slackOnly ? b : a, other = keep === a ? b : a;
         keep.at = a.at; keep.date = ymd(a.at);
         if (b.slack) keep.slack = b.slack;
