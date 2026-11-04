@@ -1248,15 +1248,25 @@ const countBy = (arr, f) => { const m = {}; arr.forEach(x => { const k = f(x); i
 const delta = (v, p) => { const d = v - p; return d > 0 ? `<span class="delta up">▲ ${num(d)}</span>` : d < 0 ? `<span class="delta down">▼ ${num(-d)}</span>` : '<span class="delta flat">–</span>'; };
 // 원격 대기: 상담 시각 → 원격 착수(슬랙 담당 확인 이모지 시각, 없으면 원격팀 접수 시각)
 // 상담 → 원격 착수: 콜라비 인입(상담 시각) → 원격 채널 글에 담당자가 확인 이모지를 단 시각. 확인 시각이 없거나, 원격 글이 상담과 2시간 넘게 떨어진(다른 건일 수 있는) 경우는 빼고 셉니다.
-const remoteWait = r => { const R = r.remote; if (!R || !R.linked || !R.ackAt || !R.handoff) return null; if (R.start && Math.abs(R.start - R.handoff) > 2 * 36e5) return null; return Math.max(0, (R.ackAt - R.handoff) / 60000); };
+// 11/4부터 #컴포즈-tf · 원격 채널 이모지로 실제 처리 시각을 남깁니다. 그 전 건은 이모지가 늦게 달린 경우가 많아, 채널을 오가며 처음 손댄 시각을 찾습니다.
+const EMOJI_TIME_FROM = new Date(2026, 10, 4);
+const firstTouch = r => {
+  const R = r.remote; if (!R || !R.handoff) return null;
+  if (R.handoff >= EMOJI_TIME_FROM) return R.ackAt || null;
+  const c = [R.ackAt, R.startAt, r.toss && r.toss.asked, r.slack && P(r.slack.firstAt)].filter(t => t && t >= R.handoff - 60000);
+  return c.length ? new Date(Math.min(...c)) : null;
+};
+const remoteWait = r => { const R = r.remote; if (!R || !R.linked || !R.handoff) return null; if (R.start && Math.abs(R.start - R.handoff) > 2 * 36e5) return null; const t = firstTouch(r); return t ? Math.max(0, (t - R.handoff) / 60000) : null; };
 const median = a => { if (!a.length) return null; const b = a.slice().sort((x, y) => x - y), m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
-const tossWait = r => r.toss && r.toss.done && r.toss.asked ? (r.toss.done - r.toss.asked) / 60000 : null;
+const tossWait = r => r.toss && r.toss.done && r.toss.asked && r.toss.done - r.toss.asked >= 60000 ? (r.toss.done - r.toss.asked) / 60000 : null;
 function stats(rows) {
   const done = rows.filter(r => r.status === '완료');
   return { total: rows.length, cs: rows.filter(r => r.side === 'CS').length, oc: rows.filter(r => r.side === '원격').length, done: done.length, open: rows.length - done.length,
     mCs: rows.filter(r => r.method === 'CS안내').length, mRemote: rows.filter(r => r.method === '원격지원').length, mVisit: rows.filter(r => r.method === '방문점검').length,
     remoteAll: rows.filter(r => r.remote).length, linked: rows.filter(r => r.remote && r.remote.linked && r.src === 'cs').length,
-    avgMin: avg(done.filter(r => r.method !== '방문점검' && !r.visit && r.minutes != null).map(r => r.minutes)),
+    avgMin: avg(done.filter(r => r.method !== '방문점검' && !r.visit && !r.toss && r.minutes != null).map(r => r.minutes)),
+    medMin: median(done.filter(r => r.method !== '방문점검' && !r.visit && !r.toss && r.minutes != null).map(r => r.minutes)),
+    medToss: median(rows.map(tossWait).filter(v => v != null)),
     medWait: median(rows.map(remoteWait).filter(v => v != null)),
     avgWait: avg(rows.map(remoteWait).filter(v => v != null)), avgToss: avg(rows.map(tossWait).filter(v => v != null)),
     toss: rows.filter(r => r.toss).length, tossOpen: rows.filter(r => r.toss && !r.toss.done).length,
@@ -1372,11 +1382,12 @@ function viewOverview() {
         <div class="fstat"><span>토스플레이스 회신 <small>(${num(s.toss)}건 · 대기 ${num(s.tossOpen)})</small></span><div><b>${fmtMin(s.avgToss)}</b><small>평균</small></div></div></div></div></div>`;
     return h;
   }
-  h += `<div class="ov-tiles" style="--n:6">`
+  h += `<div class="ov-tiles" style="--n:7">`
     + tile('전체 접수', num(s.total), '건', `CS ${num(s.cs)} · 원격 ${num(s.oc)}<br>이전 대비 ${d >= 0 ? '+' : '−'}${num(Math.abs(d))}`, { grand: true })
-    + tile('평균 해결 시간', fmtMin(s.avgMin), '', '처리 완료 기준<br>현장 방문 제외')
+    + tile('평균 해결 시간', fmtMin(s.avgMin), '', `중앙값 ${fmtMin(s.medMin)}<br>처리 완료 기준 · 방문·토플 이관 제외`)
     + tile('CS 해결', s.total ? (s.mCs / s.total * 100).toFixed(0) : 0, '%', `CS 즉시 해결 ${num(s.mCs)}건`, { src: src('cs'), c: 'var(--s1)' })
     + tile('원격 처리', num(s.remoteAll), '건', `상담 → 원격 착수<br>평균 ${fmtMin(s.avgWait)} · 중앙값 ${fmtMin(s.medWait)}`, { src: src('both'), c: 'var(--s2)' })
+    + tile('토플 이관', num(s.toss), '건', `회신까지 평균 ${fmtMin(s.avgToss)}<br>중앙값 ${fmtMin(s.medToss)} · 대기 ${num(s.tossOpen)}건`, { src: '<span class="src-tag src-toss">토플</span>', c: 'var(--purple)' })
     + tile('방문 점검', num(s.mVisit), '건', `방문까지 평균 ${s.avgVisitDays == null ? '—' : s.avgVisitDays.toFixed(1) + '일'}`, { src: src('oc'), c: 'var(--s3)' })
     + tile('미해결 이슈', num(openIssues), '건', '통합 이슈 + 개선 요청', { src: '<span class="src-tag src-toss">토플</span>', c: 'var(--red)' }) + `</div>`;
   h += `<div class="grid2 grid-gap"><div class="card"><div class="card-head"><h3>일자별 처리 추이</h3><span class="hint">합계 ${num(s.total)}건 · 이전 기간 ${num(p.total)}건</span></div>${dailyChart(rows)}</div>`
@@ -1469,10 +1480,11 @@ function recTimeline(r) {
   if (first) add(2, '1차 확인', first, S.by ? `${S.by} 확인` : '담당자 확인');
   if (R && (R.linked || R.req || S.remoteAt)) add(3, '원격 지원 요청 → 원격팀', P(S.remoteAt) || R.start || R.handoff, uniq(R.req) || '원격팀에 지원 요청');
   // 원격 2차 처리는 원격팀 기록이 실제로 이어진 건만(상담의 조치 내용은 최종 완료의 처리 결과로)
-  if (R && R.linked && (R.result || R.action)) add(4, '원격 2차 처리', R.resultAt, uniq(R.action || R.result) || R.result, /부재/.test(R.result || '') ? '부재' : R.result || r.status === '완료' ? '해결' : '진행 중');
+  const doneT = r.doneAt || P(S.doneAt), lateRec = R && R.resultAt && doneT && R.resultAt > doneT;
+  if (R && R.linked && (R.result || R.action)) add(4, lateRec ? `원격 2차 처리 (기록 업로드 ${dts(R.resultAt)})` : '원격 2차 처리', lateRec ? null : R.resultAt, uniq(R.action || R.result) || R.result, /부재/.test(R.result || '') ? '부재' : R.result || r.status === '완료' ? '해결' : '진행 중');
   if (T) {
     add(4, '토스플레이스 이관', T.asked, (T.slack && T.slack.question) || '토스플레이스에 확인 요청', T.done ? '회신 받음' : r.status === '완료' ? '이관' : '토플 확인중');
-    if (T.done) add(4, '토스플레이스 회신', T.done, (T.slack && T.slack.answer) || '회신 받음');
+    if (T.done) add(4, '토스플레이스 회신', T.asked && T.done - T.asked < 60000 ? null : T.done, (T.slack && T.slack.answer) || '회신 받음');
   }
   if (V) add(4, `현장 ${V.kind && V.kind !== '방문' ? V.kind : '방문'}`, V.pending ? null : (() => { const d = new Date(V.date); d.setHours(18, 0, 0, 0); return d; })(), V.action || V.equip || '', V.pending ? '방문 예정' : '방문 완료');
   if (r.status === '완료') {
