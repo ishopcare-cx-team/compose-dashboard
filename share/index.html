@@ -1480,9 +1480,11 @@ function tlItems(r) {
   const said = new Set([brief(r.q || r.cat)]), uniq = t => { const b = brief(t); if (!b || said.has(b)) return ''; said.add(b); return b; };
   const first = P(S.firstAt);
   // 절차 안내('확인 후 회신', '~ 예정 안내', '전달 예정')는 빼고 실제로 안내한 내용만
-  if (r.a && cleanText(r.a).replace(/\s/g, '').length >= 8 && !/회신\s*예정|확인\s*후\s*회신|예정\s*안내|전달\s*예정|연락\s*예정/.test(cleanText(r.a))) add(2, '1차 안내 · CX', r.at, r.a, '', r.aFull || r.a);
+  if (!R && r.a && cleanText(r.a).replace(/\s/g, '').length >= 8 && !/회신\s*예정|확인\s*후\s*회신|예정\s*안내|전달\s*예정|연락\s*예정/.test(cleanText(r.a))) add(2, '1차 안내 · CX', r.at, r.a, '', r.aFull || r.a);
   if (first) add(2, '1차 확인', first, S.by ? `${S.by} 확인` : '담당자 확인');
   if (R && (R.linked || R.req || S.remoteAt)) add(3, '원격 지원 요청 → 원격팀', P(S.remoteAt) || R.start || R.handoff, uniq(R.req) || '원격팀에 지원 요청', '', [R.req || '원격팀에 지원 요청', R.owner ? `원격 담당: ${R.owner}` : ''].filter(Boolean).join('\n'));
+  if (R && R.linked && R.ackAt) add(3, `원격 확인${R.ackBy ? ` · ${fullName(R.ackBy)}` : ''}`, R.ackAt, '원격 담당자 확인', '', `원격 채널 글에 담당자 확인 이모지${R.ackBy ? ` (${fullName(R.ackBy)})` : ''}`);
+  if (R && R.linked && R.startAt && (!R.ackAt || R.startAt - R.ackAt >= 60000)) add(3, `원격 착수${R.startBy ? ` · ${fullName(R.startBy)}` : ''}`, R.startAt, '원격 처리 시작', '', `원격 착수 이모지${R.startBy ? ` (${fullName(R.startBy)})` : ''}`);
   // 원격 2차 처리는 원격팀 기록이 실제로 이어진 건만(상담의 조치 내용은 최종 완료의 처리 결과로)
   const doneT = r.doneAt || P(S.doneAt), lateRec = R && R.resultAt && doneT && R.resultAt > doneT;
   if (R && R.linked && (R.result || R.action)) add(4, lateRec ? `원격 2차 처리 (기록 업로드 ${dts(R.resultAt)})` : '원격 2차 처리', lateRec ? null : R.resultAt, uniq(R.action || R.result) || R.result, /부재/.test(R.result || '') ? '부재' : R.result || r.status === '완료' ? '해결' : '진행 중', [R.result ? `결과: ${R.result}` : '', R.action].filter(Boolean).join('\n'));
