@@ -1236,12 +1236,13 @@ function perRange() {
 }
 const inPeriod = at => { if (!at) return false; const [s, e] = perRange(); return at >= s && at < e; };
 // 바로 앞 같은 길이의 기간(전일 · 전주 · 전월 · 같은 일수만큼 앞)
+// 지난 기간 = 화면 위 '◀ 전주 · 전월 · 전일'로 옮겼을 때와 같은 전체 구간(전주 월~일 · 전월 1일~말일). 이번 기간이 진행 중이어도 자르지 않음
 function prevPeriodRange() {
-  const [s, e] = perRange(), end = Math.min(e.getTime(), addDay(startOfDay(TODAY), 1).getTime()), len = Math.max(0, end - s.getTime());
+  const [s, e] = perRange();
   const ps = PER.mode === 'month' ? new Date(s.getFullYear(), s.getMonth() - 1, 1) : new Date(s.getTime() - (e - s));
-  return [ps, new Date(Math.min(ps.getTime() + len, s.getTime()))];
+  return [ps, s];
 }
-// 비교 구간 이름: 이번 기간이 진행 중이면 지난 기간도 같은 길이(예: 이번 주 월~목 ↔ 전주 월~목)
+// 비교 구간 이름: 지난 기간 전체(예: 전주 10/26~11/1)
 const prevLabel = () => { const [ps, pe] = prevPeriodRange(), last = new Date(pe.getTime() - 1), f = d => `${d.getMonth() + 1}/${d.getDate()}`, nm = PER.mode === 'day' ? '전일' : PER.mode === 'month' ? '전월' : PER.mode === 'week' ? '전주' : '이전'; return PER.mode === 'day' ? nm : `${nm}(${f(ps)}~${f(last)})`; };
 const inPrevPeriod = at => { if (!at) return false; const [s, e] = prevPeriodRange(); return at >= s && at < e; };
 const md = d => `${d.getMonth() + 1}/${d.getDate()}(${'일월화수목금토'[d.getDay()]})`;
