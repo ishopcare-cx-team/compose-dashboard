@@ -1243,7 +1243,7 @@ function prevPeriodRange() {
   return [ps, s];
 }
 // 비교 구간 이름: 지난 기간 전체(예: 전주 10/26~11/1)
-const prevLabel = () => { const [ps, pe] = prevPeriodRange(), last = new Date(pe.getTime() - 1), f = d => `${d.getMonth() + 1}/${d.getDate()}`, nm = PER.mode === 'day' ? '전일' : PER.mode === 'month' ? '전월' : PER.mode === 'week' ? '전주' : '이전'; return PER.mode === 'day' ? nm : `${nm}(${f(ps)}~${f(last)})`; };
+const prevLabel = () => { const [ps, pe] = prevPeriodRange(), last = new Date(pe.getTime() - 1), f = d => `${d.getMonth() + 1}/${d.getDate()}`, nm = PER.mode === 'day' ? '전일' : PER.mode === 'month' ? '전월' : PER.mode === 'week' ? '전주' : '이전'; return nm; };
 const inPrevPeriod = at => { if (!at) return false; const [s, e] = prevPeriodRange(); return at >= s && at < e; };
 const md = d => `${d.getMonth() + 1}/${d.getDate()}(${'일월화수목금토'[d.getDay()]})`;
 function perLabel() {
@@ -1425,7 +1425,7 @@ function viewOverview() {
   let h = filterBar('overview', RECS.filter(r => inPeriod(r.at)), tags, rows.length);
   // 공유용도 내부용과 같은 카드 · 차트 · 문구를 씁니다(데이터는 이름 가림 · 정제 문장). 담당자별 처리처럼 사람 이름이 나오는 운영 카드만 내부용에서만.
   h += `<div class="ov-tiles" style="--n:7">`
-    + tile('전체 접수', num(s.total), '건', `CS ${num(s.cs)} · 원격 ${num(s.oc)}${s.os ? ` · OS ${num(s.os)}` : ''}<br>${prevLabel()} ${num(p.total)}건 대비 ${d >= 0 ? '+' : '−'}${num(Math.abs(d))}`, { grand: true })
+    + tile('전체 접수', num(s.total), '건', `CS ${num(s.cs)} · 원격 ${num(s.oc)}${s.os ? ` · OS ${num(s.os)}` : ''}<br>${prevLabel()} 대비 ${d >= 0 ? '+' : '−'}${num(Math.abs(d))}`, { grand: true })
     + tile('평균 해결 시간', fmtMin(s.avgMin), '', `중앙값 ${fmtMin(s.medMin)}<br>처리 완료 · 방문·토플 제외`)
     + tile('CS 해결', s.total ? (s.mCs / s.total * 100).toFixed(0) : 0, '%', `CS 즉시 해결 ${num(s.mCs)}건`, { src: src('cs'), c: 'var(--s1)' })
     + tile('원격 처리', num(s.remoteAll), '건', `상담 → 원격 착수<br>평균 ${fmtMin(s.avgWait)} · 중앙값 ${fmtMin(s.medWait)}`, { src: src('both'), c: 'var(--s2)' })
