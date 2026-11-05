@@ -1825,14 +1825,24 @@ function recLink(r) {
     <span class="rl-t">${esc(brief)}</span><button class="btn sm" data-gorec="${esc(r.id)}">인입 현황에서 보기 →</button></div>`;
 }
 // 목록용 이슈 한 줄: 연결된 상담의 정리된 인입 핵심 → 상담 문의를 줄인 말 → 이슈 내용의 문의 부분을 줄인 말(상세에서 전문)
+const unquote = t => {
+  const m = String(t || '').match(/^(.*?)\s*(?:다|라|냐)고\s*(?:하\S*|요청\S*|문의\S*|말씀\S*)?$/);
+  if (!m || !m[1]) return String(t || '');
+  let b = m[1].replace(/는$/, ''), ch = b.charCodeAt(b.length - 1) - 0xAC00;
+  if (/[없있]$/.test(b)) return b + '음';
+  if (/이$/.test(b)) return b.slice(0, -1);
+  if (ch >= 0 && ch < 11172 && ch % 28 === 4) return b.slice(0, -1) + String.fromCharCode(0xAC00 + ch - 4 + 16);
+  return b;
+};
 function issueBrief(i) {
   const id = (i.receipts || [i.receipt]).filter(Boolean)[0], r = id && RECS.find(x => x.id === id || (x.dupIds || []).includes(id));
   const q = String(i.content || '').split(/\n|답변\s*:/)[0].replace(/^\s*문의\s*:\s*/, '');
-  return (r && ((r.caseSum && r.caseSum.lines && r.caseSum.lines.intake) || compress(r.q))) || compress(q) || i.content || '—';
+  return (r && ((r.caseSum && r.caseSum.lines && r.caseSum.lines.intake) || unquote(compress(r.q)))) || unquote(compress(q)) || i.content || '—';
 }
 // 영향 매장별 진행: 조치 내용 중 그 매장(또는 '전체')이 적힌 줄 + 이슈 기간(등록일 ~ 완료일 다음 날)의 원격 · 현장 처리 기록
 const issueStores = i => (i.affected && i.affected.length ? i.affected : [i.store]).filter(x => x && x !== '—' && x !== '매장 미기재');
 function issueTitle(i) {
+  if (i.title) return { title: i.title, body: i.core || '—' };
   const brief = issueBrief(i), cat = String(i.category || '').trim();
   // 공유용 정리 전('내용 정리 중'): 이슈 이름은 분류의 마지막 마디로
   if (/정리\s*중/.test(brief)) return { title: cat.split('›').pop().trim() || brief, body: '내용 정리 중' };
@@ -1842,6 +1852,19 @@ function issueTitle(i) {
   }
   const m = brief.match(/^([^,]+),\s*(.+)$/);
   return m ? { title: m[1].trim(), body: m[2].trim() } : { title: brief, body: compress(String(i.action || '').split('\n')[0]) || '—' };
+}
+function issueRecs(i, key) {
+  const iw = issWords([i.content, i.category].join(' ')), from = P(i.date), to = addDay(P(i.doneDate) || TODAY, 1);
+  if (!from || !key) return [];
+  return RECS.filter(r => r.skey && (r.skey === key || r.skey.startsWith(key) || key.startsWith(r.skey)) && r.at >= addDay(from, -1) && r.at < to
+    && [...iw].some(x => issWords([r.q, r.caseSum && r.caseSum.result, r.remote && r.remote.action, r.remote && r.remote.req].join(' ')).has(x)));
+}
+// 목록 매장 칸: 한 곳이면 그 매장, 여러 곳이면 가장 먼저 인입된 매장(관련 인입이 없으면 첫 매장) + 나머지 수
+function issueRep(i) {
+  const list = issueStores(i);
+  if (list.length <= 1) return { name: list[0] || i.store || '—', more: 0 };
+  const first = list.map((name, n) => ({ name, at: Math.min(...issueRecs(i, i.affectedKeys[n]).map(r => +r.at), Infinity) })).sort((a, b) => a.at - b.at)[0];
+  return { name: first.name, more: list.length - 1 };
 }
 function issueStoresHtml(i) {
   const list = issueStores(i);
@@ -1961,8 +1984,8 @@ function viewIssues() {
     const open = IS.filter(i => !/^완료/.test(i.status)), k = n => IS.filter(i => i.kind === n);
     h += `<div class="ov-tiles" style="--n:3">${tile('미해결 이슈', num(open.length), '건', `전체 ${IS.length}건 중 · 영업 영향 ${open.filter(i => ['일부 제한', '영업 불가'].includes(i.impact)).length}`, { grand: true })}${['매장별 설정 오류', '전체 오류'].map((n, i) => tile(n, num(k(n).length), '건', `미해결 ${k(n).filter(x => !/^완료/.test(x.status)).length}건`, { c: ['var(--orange)', 'var(--red)'][i] })).join('')}</div>
       <div class="card"><div class="card-head"><h3>통합 이슈 ${src('cs')}</h3><span class="hint">누르면 아래로 펼쳐짐 · 접수번호가 있으면 연결된 상담도 함께</span></div>${filterBar('issue', IS, tags, rows.length, { closeAll: true })}
-      <div class="tbl-scroll"><table class="mcard"><thead><tr><th>발생일</th><th>구분</th><th>이슈</th><th>장비·채널</th><th>내용</th><th>영업 영향</th><th>처리 상태</th></tr></thead><tbody>
-      ${p.rows.map(i => xrow(i.key, `<td style="white-space:nowrap">${esc(i.date)}${caret(i.key)}</td><td style="white-space:nowrap">${kindTag(i.kind)}</td><td><b>${esc(issueTitle(i).title)}</b>${issueStores(i).length > 1 ? ` <span class="tag" title="${esc(issueStores(i).join(', '))}">${issueStores(i).length}곳</span>` : ''}</td><td style="white-space:nowrap">${esc(i.channel || '—')}</td><td>${esc(issueTitle(i).body)}${i.members ? ` <span class="tag" title="같은 매장 · 같은 이슈로 들어온 상담을 한 건으로 묶음">상담 ${i.members.length}건</span>` : ''}</td><td>${impactTag(i.impact)}</td><td>${statusBadge(i.status)}</td>`, 7, () => issueDetail(i))).join('') || `<tr><td colspan="7">${empty('조건에 맞는 이슈가 없습니다.')}</td></tr>`}</tbody></table></div>${pager('issue', p)}</div>`;
+      <div class="tbl-scroll"><table class="mcard"><thead><tr><th>발생일</th><th>구분</th><th>매장</th><th>이슈</th><th>장비·채널</th><th>내용</th><th>영업 영향</th><th>처리 상태</th></tr></thead><tbody>
+      ${p.rows.map(i => xrow(i.key, `<td style="white-space:nowrap">${esc(i.date)}${caret(i.key)}</td><td style="white-space:nowrap">${kindTag(i.kind)}</td><td style="min-width:110px">${(rp => `<b style="white-space:nowrap">${esc(rp.name)}</b>${rp.more ? ` <span class="tag" title="${esc(issueStores(i).join(', '))}">+${rp.more}곳</span>` : ''}`)(issueRep(i))}</td><td style="min-width:150px;max-width:260px"><b>${esc(issueTitle(i).title)}</b></td><td style="white-space:nowrap">${esc(i.channel || '—')}</td><td>${esc(issueTitle(i).body)}${i.members ? ` <span class="tag" title="같은 매장 · 같은 이슈로 들어온 상담을 한 건으로 묶음">상담 ${i.members.length}건</span>` : ''}</td><td>${impactTag(i.impact)}</td><td>${statusBadge(i.status)}</td>`, 8, () => issueDetail(i))).join('') || `<tr><td colspan="8">${empty('조건에 맞는 이슈가 없습니다.')}</td></tr>`}</tbody></table></div>${pager('issue', p)}</div>`;
   }
   return h;
 }
@@ -1991,7 +2014,7 @@ function dataCheckHtml() {
   let h = '';
   const L = LINKSTAT, AI = RAW.aiStatus;
   if (VIEWER.internal && mode !== 'share' && AI) h += `<div class="card internal ai-status"><div class="card-head"><h3>AI 정리 진행 <span class="internal-mark">내부</span></h3><span class="hint">${esc(AI.at || '')} · ${AI.full ? '전체 수집' : '빠른 수집'}${AI.timeUp ? ' · 시간이 모자라 남은 건은 다음 수집으로' : ''}</span></div>
-    <div class="ai-lines">${[['원문 다듬기', AI.polish], ['건별 정리', AI.cases], ['공유 문장', AI.share], ['상담 문장 정리(30분)', AI.words]].map(([k, v]) => `<div><span>${k}</span><b>${esc(v || '—')}</b></div>`).join('')}
+    <div class="ai-lines">${[['원문 다듬기', AI.polish], ['건별 정리', AI.cases], ['이슈 정리', AI.issues], ['공유 문장', AI.share], ['상담 문장 정리(30분)', AI.words]].map(([k, v]) => `<div><span>${k}</span><b>${esc(v || '—')}</b></div>`).join('')}
     ${AI.error ? `<div class="ai-err"><span>마지막 오류</span><b>${esc(AI.error)}</b></div>` : ''}</div></div>`;
   h += `<div class="card internal"><div class="card-head"><h3>데이터 연결 상태 <span class="internal-mark">내부</span></h3><span class="hint">슬랙 기록은 상담일시 + 상담사로, 원격팀 기록은 같은 매장 + 가까운 시각(원격 AS ${LINK.AS_DAYS}일, 현장 방문 ${LINK.VISIT_DAYS}일)으로 연결</span></div>
     <div class="ov-tiles" style="--n:5;margin-bottom:12px">${tile('슬랙 기록 연결', `${num(L.slack.matched)}/${num(L.slack.total)}`, '건', `슬랙만 있음 ${num(L.slack.only || 0)}건 · ${L.slack.excludeReady ? `테스트 · X 이모지 ${num(L.slack.excluded || 0)}건 뺌` : '테스트 · X 이모지: 슬랙 토큰 필요'}`, { c: 'var(--accent)' })}${tile('원격 AS 연결', `${num(L.asLinked)}/${num(L.as)}`, '건', `원격 ${num(L.asOrphan)}건(CS 상담 없음)`, { c: 'var(--s2)' })}${tile('방문 AS 연결', `${num(L.visitLinked)}/${num(L.visitAs)}`, '건', '현장 방문 AS 기준', { c: 'var(--s3)' })}${tile('CS만 있는 원격지원', num(L.csOnly), '건', '원격팀 기록과 연결 안 됨', { c: 'var(--orange)' })}${tile('매장 리스트에 없는 매장', num(L.unlisted.length), '곳', '원격 기록에만 있는 매장명', { c: 'var(--red)' })}</div>
