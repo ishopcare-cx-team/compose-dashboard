@@ -1823,6 +1823,12 @@ function recLink(r) {
   return `<div class="rec-link"><span class="rl-k">연결된 상담</span><b>${esc(r.id)}</b><span class="muted">${dt(r.at).slice(5)}</span><span>${esc(r.store)}</span>${inflowTag(r.inflow)}${statusBadge(r.status)}
     <span class="rl-t">${esc(brief)}</span><button class="btn sm" data-gorec="${esc(r.id)}">인입 현황에서 보기 →</button></div>`;
 }
+// 목록용 이슈 한 줄: 연결된 상담의 정리된 인입 핵심 → 상담 문의를 줄인 말 → 이슈 내용의 문의 부분을 줄인 말(상세에서 전문)
+function issueBrief(i) {
+  const id = (i.receipts || [i.receipt]).filter(Boolean)[0], r = id && RECS.find(x => x.id === id || (x.dupIds || []).includes(id));
+  const q = String(i.content || '').split(/\n|답변\s*:/)[0].replace(/^\s*문의\s*:\s*/, '');
+  return (r && ((r.caseSum && r.caseSum.lines && r.caseSum.lines.intake) || compress(r.q))) || compress(q) || i.content || '—';
+}
 function issueDetail(i) {
   const recs = [...new Set((i.receipts || [i.receipt]).filter(Boolean).map(id => RECS.find(r => r.id === id || (r.dupIds || []).includes(id))).filter(Boolean))];
   return `<div class="vp" style="--n:2">${infoBox([['유형', i.type], ['분류', i.category], ['발생 경로', i.route], ['영업 영향', i.impact], ['접수번호', (i.receipts || [i.receipt]).filter(Boolean).join(', ')], ['담당', i.owner], ['완료일', i.doneDate]])}${panel('asis', '!', '내용', i.content)}${panel('act', '✓', '조치 내용', i.action)}</div>${i.slackLink ? `<a class="link" href="${esc(i.slackLink)}" target="_blank" rel="noopener">슬랙 원문 보기 ↗</a>` : ''}`
@@ -1923,7 +1929,7 @@ function viewIssues() {
     h += `<div class="ov-tiles" style="--n:3">${tile('미해결 이슈', num(open.length), '건', `전체 ${IS.length}건 중 · 영업 영향 ${open.filter(i => ['일부 제한', '영업 불가'].includes(i.impact)).length}`, { grand: true })}${['매장별 설정 오류', '전체 오류'].map((n, i) => tile(n, num(k(n).length), '건', `미해결 ${k(n).filter(x => !/^완료/.test(x.status)).length}건`, { c: ['var(--orange)', 'var(--red)'][i] })).join('')}</div>
       <div class="card"><div class="card-head"><h3>통합 이슈 ${src('cs')}</h3><span class="hint">누르면 아래로 펼쳐짐 · 접수번호가 있으면 연결된 상담도 함께</span></div>${filterBar('issue', IS, tags, rows.length, { closeAll: true })}
       <div class="tbl-scroll"><table class="mcard"><thead><tr><th>등록일</th><th>매장</th><th>구분</th><th>장비·채널</th><th>내용</th><th>영업 영향</th><th>처리 상태</th><th>담당</th></tr></thead><tbody>
-      ${p.rows.map(i => xrow(i.key, `<td style="white-space:nowrap">${esc(i.date)}${caret(i.key)}</td><td><b>${esc(i.store)}</b></td><td>${kindTag(i.kind)}</td><td>${esc(i.channel)}</td><td>${esc(i.content)}${i.members ? ` <span class="tag" title="같은 매장 · 같은 이슈로 들어온 상담을 한 건으로 묶음">상담 ${i.members.length}건</span>` : ''}</td><td>${impactTag(i.impact)}</td><td>${statusBadge(i.status)}</td><td>${esc(i.owner || '—')}</td>`, 8, () => issueDetail(i))).join('') || `<tr><td colspan="8">${empty('조건에 맞는 이슈가 없습니다.')}</td></tr>`}</tbody></table></div>${pager('issue', p)}</div>`;
+      ${p.rows.map(i => xrow(i.key, `<td style="white-space:nowrap">${esc(i.date)}${caret(i.key)}</td><td><b>${esc(i.store)}</b></td><td style="white-space:nowrap">${kindTag(i.kind)}</td><td style="white-space:nowrap">${esc(i.channel || '—')}</td><td>${esc(issueBrief(i))}${i.members ? ` <span class="tag" title="같은 매장 · 같은 이슈로 들어온 상담을 한 건으로 묶음">상담 ${i.members.length}건</span>` : ''}</td><td>${impactTag(i.impact)}</td><td>${statusBadge(i.status)}</td><td>${esc(i.owner || '—')}</td>`, 8, () => issueDetail(i))).join('') || `<tr><td colspan="8">${empty('조건에 맞는 이슈가 없습니다.')}</td></tr>`}</tbody></table></div>${pager('issue', p)}</div>`;
   }
   return h;
 }
