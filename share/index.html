@@ -834,7 +834,7 @@ function buildModel(raw) {
   const lookup = name => { const k = skey(name); return k ? SM[k] || alias(k) : null; };
   const storeOk = name => { const t = String(name || '').trim(); if (!t || t === '—' || /여러\s*매장/.test(t)) return true; if (STORE_EXCLUDE.test(t)) return false; return /컴포즈/.test(t) || !!lookup(t); };
   const storeLabel = name => { const t = String(name || '').trim(); if (!t || t === '—') return '매장 미기재'; if (/여러\s*매장/.test(t)) return t; const o = lookup(t); return o ? o.name : plainName(t); };
-  ISSUES = (raw.issues || []).map((i, n) => Object.assign({ key: `iss:${n}` }, i)).filter(i => storeOk(i.store) && !isTestText(i.content || '')).map(i => Object.assign(i, { storeRaw: i.store, store: storeLabel(i.store) }));
+  ISSUES = (raw.issues || []).map((i, n) => Object.assign({ key: `iss:${n}` }, i)).filter(i => storeOk(i.store) && !isTestText(i.content || '')).map(i => Object.assign(i, { storeRaw: i.store, store: storeLabel(i.store), affected: (i.affected || []).map(storeLabel), affectedKeys: (i.affected || []).map(skey).filter(Boolean) }));
   ISSUES.forEach(i => { if (i.receipt) issueByReceipt[i.receipt] = i; });
   // 통합 이슈는 오류 건만(단순 기능 문의는 인입 현황에만). 장비·채널 참고용 issueByReceipt는 전체를 씀
   ISSUES = ISSUES.filter(i => /오류/.test(i.kind || ''));
@@ -1024,6 +1024,7 @@ const REINFLOW_WORDS = /재\s*인입|재\s*문의|재\s*요청|재\s*발생|동�
 // 글을 알 수 없으면(정리 전) 같은 날 · 같은 구분 · 같은 장비·채널일 때만 묶음. 대표 줄은 가장 이른 등록, 상태는 하나라도 안 끝났으면 그 상태
 const ISS_STOP = new Set(['문의', '요청', '확인', '오류', '발생', '관련', '건', '지원', '조치', '완료', '여부', '진행', '설정', '불가', '노출', '시', '후', '및']);
 const issWords = t => new Set(String(t || '').replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(w => w.length >= 2 && !ISS_STOP.has(w)));
+const issueHits = (i, key) => !!key && (skey(i.store) === key || skey(i.store).startsWith(key) || (i.affectedKeys || []).some(k => k === key || k.startsWith(key) || key.startsWith(k)));
 function groupIssues() {
   const recOf = id => id && RECS.find(r => r.id === id || (r.dupIds || []).includes(id));
   const textOf = i => { const r = recOf(i.receipt), c = /정리 중/.test(i.content || '') ? '' : i.content; return (r && r.q) || c || ''; };
@@ -1422,7 +1423,7 @@ const REC_HEAD = '<thead><tr><th>접수번호</th><th>접수일시</th><th>인�
 function viewOverview() {
   const tags = REC_TAGS.filter(t => ['inflow', 'channel', 'method'].includes(t.key));
   const base = recFilter('overview', RECS, tags), rows = base.filter(r => inPeriod(r.at)), prev = base.filter(r => inPrevPeriod(r.at)), s = stats(rows), p = stats(prev);
-  const sq = skey(flt('overview').store), byStore = x => !sq || skey(x.store).includes(sq);
+  const sq = skey(flt('overview').store), byStore = x => !sq || skey(x.store).includes(sq) || (x.affectedKeys || []).some(k => k.includes(sq));
   const openIssues = ISSUES.filter(i => byStore(i) && !/^완료/.test(i.status)).length + VOC.filter(v => byStore(v) && !['완료', '보류'].includes(v.status)).length, d = s.total - p.total;
   let h = filterBar('overview', RECS.filter(r => inPeriod(r.at)), tags, rows.length);
   // 공유용도 내부용과 같은 카드 · 차트 · 문구를 씁니다(데이터는 이름 가림 · 정제 문장). 담당자별 처리처럼 사람 이름이 나오는 운영 카드만 내부용에서만.
@@ -1725,7 +1726,7 @@ const hcChips = hc => HCQ.map((q, i) => { const r = (hc.answers[i] || {}).result
 // 지점 상세(지점별 탭에서 줄을 누르면 펼쳐짐)
 function storeDetail(s) {
   const rs = RECS.filter(r => r.skey === s.key), recent = rs.filter(r => r.at >= addDay(TODAY, -30)).length;
-  const iss = ISSUES.filter(i => skey(i.store) === s.key || skey(i.store).startsWith(s.key)), openIss = iss.filter(i => !/^완료/.test(i.status));
+  const iss = ISSUES.filter(i => issueHits(i, s.key)), openIss = iss.filter(i => !/^완료/.test(i.status));
   const voc = VOC.filter(v => skey(v.store) === s.key), hc = HAPPY.find(x => skey(x.store) === s.key), stat = (l, v, sub) => `<div class="store-stat"><div class="label">${l}</div><b>${v}</b><small>${sub}</small></div>`;
   const evs = storeTimeline(s);
   let h = `<div style="padding:10px 4px"><div class="hint" style="margin-bottom:12px">${s.no ? `${esc(s.no)}호점 · ` : ''}${s.code ? `OKPOS 매장코드 ${esc(s.code)} · ` : ''}설치 ${esc(s.installed || '—')}${s.kind ? ' · ' + esc(s.kind) : ''}${recent >= 3 ? ' · <span class="badge b-red">반복 문의 매장</span>' : ''}</div>
@@ -1829,10 +1830,25 @@ function issueBrief(i) {
   const q = String(i.content || '').split(/\n|답변\s*:/)[0].replace(/^\s*문의\s*:\s*/, '');
   return (r && ((r.caseSum && r.caseSum.lines && r.caseSum.lines.intake) || compress(r.q))) || compress(q) || i.content || '—';
 }
+// 영향 매장별 진행: 조치 내용 중 그 매장(또는 '전체')이 적힌 줄 + 이슈 기간(등록일 ~ 완료일 다음 날)의 원격 · 현장 처리 기록
+function issueStoresHtml(i) {
+  if (!i.affected || !i.affected.length) return '';
+  // 같은 기간의 처리 기록 중 이 이슈와 낱말이 겹치는 것만(예: 업데이트 · 주문서). 다른 문제로 들어온 건은 빼기
+  const iw = issWords([i.content, i.category].join(' ')), same = r => { const w = issWords([r.q, r.caseSum && r.caseSum.result, r.remote && r.remote.action, r.remote && r.remote.req].join(' ')); return [...iw].some(x => w.has(x)); };
+  const from = P(i.date), to = addDay(P(i.doneDate) || TODAY, 1), notes = String(i.action || '').split('\n').map(l => l.trim()).filter(Boolean);
+  const cards = i.affected.map((name, n) => {
+    const key = i.affectedKeys[n], short = skey(name).replace(/점$/, '');
+    const memo = notes.filter(l => skey(l).includes(short) || /전체/.test(l)).map(l => ({ t: (l.match(/^(\d{1,2}\/\d{1,2}(?:\s+\d{1,2}:\d{2})?)/) || [])[1] || '', x: l.replace(/^\d{1,2}\/\d{1,2}(?:\s+\d{1,2}:\d{2})?\s*/, '').replace(/^[^:]*:\s*/, '') }));
+    const recs = from ? RECS.filter(r => r.skey && (r.skey === key || r.skey.startsWith(key) || key.startsWith(r.skey)) && inProc(r) && procAt(r) >= from && procAt(r) < to && same(r)) : [];
+    const lines = memo.map(m => `<p><span class="muted">${esc(m.t)}</span> ${esc(m.x)}</p>`).concat(recs.map(r => `<p><span class="muted">${esc(dts(procAt(r)).slice(0, 11))}</span> ${esc(procSummary({ rec: r, text: (r.caseSum && r.caseSum.result) || (r.remote && r.remote.action) || r.q }))} <button class="btn sm" data-goproc="${esc(r.id)}">처리 내역 →</button></p>`));
+    return `<div class="tlc-card pc${n % 6}"><div class="tlc-h">${esc(name)}</div>${lines.join('') || '<p class="muted">기록 없음</p>'}</div>`;
+  });
+  return `<div class="card-head" style="margin-top:10px"><h3 style="font-size:14px">영향 매장별 진행</h3><span class="hint">조치 내용 · 원격 · 현장 처리 기록</span></div><div class="tlc">${cards.join('')}</div>`;
+}
 function issueDetail(i) {
   const recs = [...new Set((i.receipts || [i.receipt]).filter(Boolean).map(id => RECS.find(r => r.id === id || (r.dupIds || []).includes(id))).filter(Boolean))];
-  return `<div class="vp" style="--n:2">${infoBox([['유형', i.type], ['분류', i.category], ['발생 경로', i.route], ['영업 영향', i.impact], ['접수번호', (i.receipts || [i.receipt]).filter(Boolean).join(', ')], ['담당', i.owner], ['완료일', i.doneDate]])}${panel('asis', '!', '내용', i.content)}${panel('act', '✓', '조치 내용', i.action)}</div>${i.slackLink ? `<a class="link" href="${esc(i.slackLink)}" target="_blank" rel="noopener">슬랙 원문 보기 ↗</a>` : ''}`
-    + recs.map(recLink).join('');
+  return `<div class="vp" style="--n:2">${infoBox([['유형', i.type], ['분류', i.category], ['발생 경로', i.route], ['영업 영향', i.impact], ['영향 매장', i.affected && i.affected.length ? `${i.affected.length}곳` : ''], ['접수번호', (i.receipts || [i.receipt]).filter(Boolean).join(', ')], ['담당', i.owner], ['완료일', i.doneDate]])}${panel('asis', '!', '내용', i.content)}${panel('act', '✓', '조치 내용', i.action)}</div>${i.slackLink ? `<a class="link" href="${esc(i.slackLink)}" target="_blank" rel="noopener">슬랙 원문 보기 ↗</a>` : ''}`
+    + issueStoresHtml(i) + recs.map(recLink).join('');
 }
 const vocDetail = v => `<div class="vp" style="--n:3">${infoBox([['상황·빈도', v.condition], ['동일 이슈 매장', v.sameStores], ['담당', v.owner]])}${panel('asis', '!', '현상 As-Is', v.asIs)}${panel('tobe', '→', '요청사항 To-Be', v.toBe)}${panel('act', '✓', '조치·답변', v.action)}</div>${v.slackLink ? `<a class="link" href="${esc(v.slackLink)}" target="_blank" rel="noopener">슬랙 원문 보기 ↗</a>` : ''}`;
 // 처리 내역: 원격팀 대시보드와 같은 처리 구분 8가지. 원격팀 기록은 원격팀 분류(cat)를, CS 상담은 상담유형을 대응표 기준으로 나눕니다.
@@ -1927,12 +1943,12 @@ function viewIssues() {
     const tags = [{ key: 'kind', label: '구분', get: i => i.kind }, { key: 'channel', label: '장비·채널', get: i => i.channel }, { key: 'type', label: '유형', get: i => i.type },
       { key: 'impact', label: '영업 영향', get: i => i.impact }, { key: 'status', label: '처리 상태', get: i => i.status }];
     const IS = ISSUES.filter(x => inPeriod(P(x.date)));
-    const rows = applyFilter('issue', IS, { store: i => i.store, text: i => [i.content, i.action, i.category, i.receipt, i.owner].join(' '), tags }), p = paged('issue', rows, 30);
+    const rows = applyFilter('issue', IS, { store: i => [i.store].concat(i.affected || []).join(' '), text: i => [i.content, i.action, i.category, i.receipt, i.owner].join(' '), tags }), p = paged('issue', rows, 30);
     const open = IS.filter(i => !/^완료/.test(i.status)), k = n => IS.filter(i => i.kind === n);
     h += `<div class="ov-tiles" style="--n:3">${tile('미해결 이슈', num(open.length), '건', `전체 ${IS.length}건 중 · 영업 영향 ${open.filter(i => ['일부 제한', '영업 불가'].includes(i.impact)).length}`, { grand: true })}${['매장별 설정 오류', '전체 오류'].map((n, i) => tile(n, num(k(n).length), '건', `미해결 ${k(n).filter(x => !/^완료/.test(x.status)).length}건`, { c: ['var(--orange)', 'var(--red)'][i] })).join('')}</div>
       <div class="card"><div class="card-head"><h3>통합 이슈 ${src('cs')}</h3><span class="hint">누르면 아래로 펼쳐짐 · 접수번호가 있으면 연결된 상담도 함께</span></div>${filterBar('issue', IS, tags, rows.length, { closeAll: true })}
       <div class="tbl-scroll"><table class="mcard"><thead><tr><th>등록일</th><th>매장</th><th>구분</th><th>장비·채널</th><th>내용</th><th>영업 영향</th><th>처리 상태</th><th>담당</th></tr></thead><tbody>
-      ${p.rows.map(i => xrow(i.key, `<td style="white-space:nowrap">${esc(i.date)}${caret(i.key)}</td><td><b>${esc(i.store)}</b></td><td style="white-space:nowrap">${kindTag(i.kind)}</td><td style="white-space:nowrap">${esc(i.channel || '—')}</td><td>${esc(issueBrief(i))}${i.members ? ` <span class="tag" title="같은 매장 · 같은 이슈로 들어온 상담을 한 건으로 묶음">상담 ${i.members.length}건</span>` : ''}</td><td>${impactTag(i.impact)}</td><td>${statusBadge(i.status)}</td><td>${esc(i.owner || '—')}</td>`, 8, () => issueDetail(i))).join('') || `<tr><td colspan="8">${empty('조건에 맞는 이슈가 없습니다.')}</td></tr>`}</tbody></table></div>${pager('issue', p)}</div>`;
+      ${p.rows.map(i => xrow(i.key, `<td style="white-space:nowrap">${esc(i.date)}${caret(i.key)}</td><td>${i.affected && i.affected.length > 1 ? `<b title="${esc(i.affected.join(', '))}">영향 매장 ${i.affected.length}곳</b>` : `<b>${esc(i.affected && i.affected.length === 1 ? i.affected[0] : i.store)}</b>`}</td><td style="white-space:nowrap">${kindTag(i.kind)}</td><td style="white-space:nowrap">${esc(i.channel || '—')}</td><td>${esc(issueBrief(i))}${i.members ? ` <span class="tag" title="같은 매장 · 같은 이슈로 들어온 상담을 한 건으로 묶음">상담 ${i.members.length}건</span>` : ''}</td><td>${impactTag(i.impact)}</td><td>${statusBadge(i.status)}</td><td>${esc(i.owner || '—')}</td>`, 8, () => issueDetail(i))).join('') || `<tr><td colspan="8">${empty('조건에 맞는 이슈가 없습니다.')}</td></tr>`}</tbody></table></div>${pager('issue', p)}</div>`;
   }
   return h;
 }
