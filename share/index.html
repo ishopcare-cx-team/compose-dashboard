@@ -836,6 +836,8 @@ function buildModel(raw) {
   const storeLabel = name => { const t = String(name || '').trim(); if (!t || t === '—') return '매장 미기재'; if (/여러\s*매장/.test(t)) return t; const o = lookup(t); return o ? o.name : plainName(t); };
   ISSUES = (raw.issues || []).map((i, n) => Object.assign({ key: `iss:${n}` }, i)).filter(i => storeOk(i.store) && !isTestText(i.content || '')).map(i => Object.assign(i, { storeRaw: i.store, store: storeLabel(i.store) }));
   ISSUES.forEach(i => { if (i.receipt) issueByReceipt[i.receipt] = i; });
+  // 통합 이슈는 오류 건만(단순 기능 문의는 인입 현황에만). 장비·채널 참고용 issueByReceipt는 전체를 씀
+  ISSUES = ISSUES.filter(i => /오류/.test(i.kind || ''));
   VOC = (raw.voc || []).map((v, n) => Object.assign({ key: `voc:${v.id || n}` }, v)).filter(v => storeOk(v.store) && !isTestText([v.title, v.asIs].join(' '))).map(v => Object.assign(v, { storeRaw: v.store, store: storeLabel(v.store) }));
   HCQ = raw.happyQuestions && raw.happyQuestions.length ? raw.happyQuestions : HC_DEFAULT;
   // 예전 데이터(결과 글자만 있는 배열)도 { result, answer }로 맞춥니다.
@@ -1274,8 +1276,8 @@ function perControls() {
 function prevScope(r) { if (scope === '7d') return r.at >= addDay(TODAY, -14) && r.at < addDay(TODAY, -7); if (scope === '30d') return r.at >= addDay(TODAY, -60) && r.at < addDay(TODAY, -30); return r.date.slice(0, 7) === prevYM(scope.slice(1)); }
 const TITLES = {
   overview: ['전체현황', 'CX 상담 + 원격 처리 통합 현황'], records: ['인입 현황', '콜라비 · 원격팀 · 법인폰 · 현장으로 들어온 컴포즈 문의 전체'],
-  process: ['처리 내역', '원격팀 처리 구분(원격AS · 현장방문 · 단순문의 …)으로 나눈 처리 기록'],
-  issues: ['통합 이슈', '단순 기능 문의 · 매장별 설정 오류 · 전체 오류'], voc: ['VOC', '매장 기능 개선 요청(현상 · 요청 · 조치)'],
+  process: ['처리 내역', '원격팀 처리 구분 내역'],
+  issues: ['통합 이슈', '매장별 설정 오류 · 전체 오류'], voc: ['VOC', '매장 기능 개선 요청(현상 · 요청 · 조치)'],
   cands: ['슬랙 후보', '협업채널 · 원격 긴급 글에서 찾은 이슈 · VOC · 공지 후보(확인 후 등록)'], happy: ['해피콜', '신규 설치 매장 사후 확인'],
   equip: ['장비 조회', '원격팀 장비 이력 + CS 사전체크'], stores: ['지점별', '매장 한 곳의 상담 · 원격 · 장비 · 설정'],  report: ['월간 보고서', '토스플레이스 보고용'],
   principles: ['응대 원칙', '상담 가이드 · CX 응대 기준'], incident: ['장애 대응', '상담 가이드 · 알림 문구별 조치'],
@@ -1918,7 +1920,7 @@ function viewIssues() {
     const IS = ISSUES.filter(x => inPeriod(P(x.date)));
     const rows = applyFilter('issue', IS, { store: i => i.store, text: i => [i.content, i.action, i.category, i.receipt, i.owner].join(' '), tags }), p = paged('issue', rows, 30);
     const open = IS.filter(i => !/^완료/.test(i.status)), k = n => IS.filter(i => i.kind === n);
-    h += `<div class="ov-tiles" style="--n:4">${tile('미해결 이슈', num(open.length), '건', `전체 ${IS.length}건 중 · 영업 영향 ${open.filter(i => ['일부 제한', '영업 불가'].includes(i.impact)).length}`, { grand: true })}${['단순 기능 문의', '매장별 설정 오류', '전체 오류'].map((n, i) => tile(n, num(k(n).length), '건', `미해결 ${k(n).filter(x => !/^완료/.test(x.status)).length}건`, { c: ['var(--s1)', 'var(--orange)', 'var(--red)'][i] })).join('')}</div>
+    h += `<div class="ov-tiles" style="--n:3">${tile('미해결 이슈', num(open.length), '건', `전체 ${IS.length}건 중 · 영업 영향 ${open.filter(i => ['일부 제한', '영업 불가'].includes(i.impact)).length}`, { grand: true })}${['매장별 설정 오류', '전체 오류'].map((n, i) => tile(n, num(k(n).length), '건', `미해결 ${k(n).filter(x => !/^완료/.test(x.status)).length}건`, { c: ['var(--orange)', 'var(--red)'][i] })).join('')}</div>
       <div class="card"><div class="card-head"><h3>통합 이슈 ${src('cs')}</h3><span class="hint">누르면 아래로 펼쳐짐 · 접수번호가 있으면 연결된 상담도 함께</span></div>${filterBar('issue', IS, tags, rows.length, { closeAll: true })}
       <div class="tbl-scroll"><table class="mcard"><thead><tr><th>등록일</th><th>매장</th><th>구분</th><th>장비·채널</th><th>내용</th><th>영업 영향</th><th>처리 상태</th><th>담당</th></tr></thead><tbody>
       ${p.rows.map(i => xrow(i.key, `<td style="white-space:nowrap">${esc(i.date)}${caret(i.key)}</td><td><b>${esc(i.store)}</b></td><td>${kindTag(i.kind)}</td><td>${esc(i.channel)}</td><td>${esc(i.content)}${i.members ? ` <span class="tag" title="같은 매장 · 같은 이슈로 들어온 상담을 한 건으로 묶음">상담 ${i.members.length}건</span>` : ''}</td><td>${impactTag(i.impact)}</td><td>${statusBadge(i.status)}</td><td>${esc(i.owner || '—')}</td>`, 8, () => issueDetail(i))).join('') || `<tr><td colspan="8">${empty('조건에 맞는 이슈가 없습니다.')}</td></tr>`}</tbody></table></div>${pager('issue', p)}</div>`;
