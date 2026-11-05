@@ -1900,6 +1900,9 @@ function procDetail(x) {
   return `<div class="vp" style="--n:4">${infoBox(info)}${panel('asis', '!', '현상', cleanText(issue, 260))}${panel('info', '→', '처리 과정', cleanText(process, 320))}${panel('tobe', '✓', '결과', cleanText(result, 260))}${panel('cause', '?', '알게 된 원인', C.cause || '')}</div>`
     + (r ? `<div class="hint" style="margin-top:4px">시각별 흐름은 <button class="btn sm" data-gorec="${esc(r.id)}">인입 현황에서 보기 →</button></div>` : '');
 }
+// 처리 내역 목록의 내용: 처리 결과 한 마디(Claude 정리 → 결과 글을 줄인 말) → 없으면 문의를 줄인 말
+const procSummary = x => { const r = x.rec, L = (r && r.caseSum && r.caseSum.lines) || {}, ok = t => (t && !/정리\s*중$/.test(t) ? String(t).replace(/^\d{1,2}\/\d{1,2}\s*/, '') : '');
+  return ok(L.result) || ok(compress(x.text)) || (r && (ok(L.intake) || ok(compress(r.q)))) || '—'; };
 function viewProcess() {
   const all = RECS.filter(inProc).map(r => ({ key: `rec:${r.id}`, id: r.id, at: procAt(r), store: r.store, proc: PROC_BY[procOf(r)].name, channel: r.channel, status: r.status,
       owner: (r.visit && r.visit.by) || (r.remote && r.remote.owner) || r.cx || '', text: (r.caseSum && r.caseSum.result) || (r.slack && r.slack.action) || (r.remote && r.remote.action) || (r.visit && r.visit.action) || r.a || r.q, rec: r }))
@@ -1913,7 +1916,7 @@ function viewProcess() {
   h += `<div class="proc-tiles">${PROC.map(pc => { const n = all.filter(x => x.proc === pc.name).length; return `<button class="proc-tile ${cur === pc.name ? 'on' : ''}" data-proc="${pc.name}" style="--c:${pc.color}"><span>${pc.name}</span><b>${num(n)}</b></button>`; }).join('')}</div>`;
   h += `<div class="card"><div class="card-head"><h3>처리 내역</h3><span class="hint">${perLabel()} · 최신순 · 누르면 아래로 펼쳐짐</span></div>${filterBar('process', all, tags, rows.length, { closeAll: true })}
     <div class="tbl-scroll"><table class="mcard"><thead><tr><th>처리일시</th><th>처리 구분</th><th>매장</th><th>내용</th><th>장비·채널</th><th>담당</th><th>상태</th></tr></thead><tbody>
-    ${p.rows.map(x => xrow(x.key, `<td style="white-space:nowrap">${dt(x.at).slice(5)}${caret(x.key)}</td><td>${procTag(PROC.find(pc => pc.name === x.proc).key)}</td><td style="white-space:nowrap"><b>${esc(x.store)}</b></td><td>${esc(String(x.text).slice(0, 80) || '—')}</td><td>${esc(x.channel)}</td><td style="white-space:nowrap">${esc(x.owner || '—')}</td><td>${statusBadge(x.status)}</td>`, 7, () => procDetail(x))).join('') || `<tr><td colspan="7">${empty('조건에 맞는 처리 내역이 없습니다.')}</td></tr>`}
+    ${p.rows.map(x => xrow(x.key, `<td style="white-space:nowrap">${dt(x.at).slice(5)}${caret(x.key)}</td><td>${procTag(PROC.find(pc => pc.name === x.proc).key)}</td><td style="white-space:nowrap"><b>${esc(x.store)}</b></td><td>${esc(procSummary(x))}</td><td>${esc(x.channel)}</td><td style="white-space:nowrap">${esc(x.owner || '—')}</td><td>${statusBadge(x.status)}</td>`, 7, () => procDetail(x))).join('') || `<tr><td colspan="7">${empty('조건에 맞는 처리 내역이 없습니다.')}</td></tr>`}
     </tbody></table></div>${pager('process', p)}</div>`;
   return h;
 }
