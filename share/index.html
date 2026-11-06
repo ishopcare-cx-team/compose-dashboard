@@ -1568,6 +1568,40 @@ function flowHtml(steps) {
 // 인입 현황 타임라인: ① 인입 ② 1차 확인 · 안내 ③ 원격 지원 요청 ④ 원격 2차 처리(해결) 또는 토스플레이스 이관 ⑤ 최종 완료. 시각은 초까지.
 // 타임라인 글: 첫 문장만 70자 안으로(다듬은 한 줄이 있으면 그것)
 const brief = (t, n = 70) => { const c = cleanText(t, 400); if (c.length <= n) return c; const m = c.match(/^.+?(?:다|요|음|함|됨|임)[.!?]?(?=\s|$)/); return cleanText(m ? m[0] : c, n); };
+// 문장 끝을 개조식 명사형으로: '문의드렸습니다' → '문의', '남겼습니다' → '남김', '두겠습니다' → '둘 예정', '재발했습니다' → '재발생'
+// 한글 음절 분해 · 조립(받침 바꾸기용)
+const hj = ch => { const c = ch.charCodeAt(0) - 0xAC00; return c >= 0 && c < 11172 ? { cho: Math.floor(c / 588), jung: Math.floor(c % 588 / 28), jong: c % 28 } : null; };
+const hc = (cho, jung, jong) => String.fromCharCode(0xAC00 + cho * 588 + jung * 28 + jong);
+// 어간 끝 음절에 받침 붙이기(ㅁ = 16, ㄹ = 8). 이미 받침이 있으면 '음' · '을'
+const withJong = (stem, jong) => { const j = hj(stem.slice(-1)); if (!j) return stem; if (j.jong) return stem + (jong === 16 ? '음' : '을'); return stem.slice(0, -1) + hc(j.cho, j.jung, jong); };
+// 과거형 음절(남겼 · 봤 · 줬 · 냈 · 받았)을 어간으로: ㅕ→ㅣ, ㅘ→ㅗ, ㅝ→ㅜ, ㅙ→ㅚ, 따로 쓴 었 · 았 · 였은 앞 음절
+const pastStem = w => { const last = w.slice(-1), j = hj(last); if (!j || j.jong !== 20) return null;
+  if (/^[었았였]$/.test(last)) return w.length > 1 ? w.slice(0, -1) : null;
+  const back = { 6: 20, 9: 8, 14: 13, 10: 11 }[j.jung]; return w.slice(0, -1) + hc(j.cho, back == null ? j.jung : back, 0); };
+const FINISH_RULES = [
+  [/\s*(?:을|를)?\s*(?:부탁)?\s*드(?:렸|립|리)(?:습니다|니다|어요|음|고|며)?$/, ''],
+  [/재발(?:생)?\s*(?:했|하였|합|해|함|하여|하고|하는|된|됨|되었|됐)?\S*$/, '재발생'],
+  [/(되지|하지)\s*않\S*$/, '$1 않음'],
+  [/안\s*(?:됩니다|돼요|됨|되요|되었습니다|됐습니다|돼|되고|되는데)$/, '안 됨'],
+  [/(?:되었|됐)(?:습니다|어요|음|고|는데)?$/, '됨'],
+  [/(?:됩니다|돼요|되요|된다)$/, '됨'],
+  [/(?:있습니다|있어요|있음|있고|있는데)$/, '있음'],
+  [/(?:없습니다|없어요|없음|없고|없는데)$/, '없음'],
+  [/\s*(?:입니다|이에요|예요|이며|이고)$/, ''],
+  [/(?:하셨|했|하였)(?:습니다|어요|음|다|고|는데|으며)?$/, '함'],
+  [/(?:합니다|해요|한다|하며|하고|하는데|하여|해서)$/, '함'],
+  [/(?:하십니다|하심|하십)$/, '함']
+];
+const finishKo = t => {
+  let s = String(t || '').replace(/[.!?…~,\s]+$/, '').trim();
+  if (!s) return s;
+  for (const [re, to] of FINISH_RULES) if (re.test(s)) return s.replace(re, to).replace(/\s{2,}/g, ' ').trim();
+  let m = s.match(/^(.*?)(\S+?)겠(?:습니다|어요|음|고|으나|지만)?$/);
+  if (m && m[2]) return `${m[1]}${withJong(m[2], 8)} 예정`.trim();
+  m = s.match(/^(.*?)(\S+?)(?:습니다|어요|음|고|는데|으며|다)?$/);
+  if (m && m[2]) { const st = pastStem(m[2]); if (st) return `${m[1]}${withJong(st, 16)}`.trim(); }
+  return s.replace(/(?:으며|면서|는데|지만|으나|어서|아서|여서)$/, '').trim();
+};
 // 타임라인 단계: text = 간략 타임라인용(첫 문장), full = 아래 가로 카드용(상담 내역 기준 상세, 오타 · 기호는 다듬은 글/정리로 제거)
 const compress = t => {
   let c = cleanText(t, 2000); if (!c) return '';
@@ -1575,9 +1609,8 @@ const compress = t => {
   c = c.replace(/^(현재|우선|일단|혹시)\s+/, '')
     .replace(/\s*(?:을|를)?\s*(요청|문의|확인|점검|전달|안내|공유|처리|진행|설치|교체)\s*(?:을|를)?\s*(?:드립니다|드려요|부탁드립니다|부탁드려요|합니다|했습니다|하였습니다|하셨습니다|해요|했어요|함|하심|드림|예정입니다|예정이에요)[.!?]?$/, ' $1')
     .replace(/(?:되지\s*않습니다|되지\s*않아요|안\s*됩니다|안\s*돼요)[.!?]?$/, ' 안 됨')
-    .replace(/(?:했습니다|하였습니다|했어요|됐습니다|되었습니다|됐어요|입니다|이에요|예요|습니다|합니다|어요|아요|해요|니다)[.!?]?$/, '')
     .replace(/[.!?,\s]+$/, '').trim();
-  return c;
+  return finishKo(c);
 };
 function tlItems(r) {
   if (r.viaCollab && r.toss) {
@@ -1586,11 +1619,11 @@ function tlItems(r) {
     items.push({ step: 1, label: `인입 · ${via}`, t: r.at, text: sm.intake || `${core}${r.status === '완료' ? '. 최종 해결 후 토플로 공유 완료' : ''}`, tag: '', full: [sm.intake || r.q, r.cat ? `문의유형: ${r.cat}` : '', `처리 방식: ${r.method}`].filter(Boolean).join('\n') });
     const ans = T.slack && T.slack.answer, fu = sm.followup || (ans ? (/[?？]\s*$/.test(ans) ? '토플 추가 확인 요청 · 이상 없음' : compress(ans)) : ''), fuT = T.lastAt || T.done;
     if (fu) items.push({ step: 4, label: '추가 공유', t: fuT && fuT - r.at >= 60000 ? fuT : null, text: fu, tag: sm.resolved ? '해결' : '', full: fu });
-    return items;
+    return items.map(x => Object.assign(x, { text: finishKo(x.text) }));
   }
   // 다섯 단계 틀: ① 인입 ② 원격 지원 요청 ③ 원격 확인 · 1차 조치 ④ 2차 대응(확인 중인 내용) ⑤ 최종 해결
   const S = r.slack || {}, R = r.remote, T = r.toss, V = r.visit, items = [];
-  const add = (step, label, t, text, tag, full) => items.push({ step, label, t: t || null, text: text || '', tag: tag || '', full: full || text || '' });
+  const add = (step, label, t, text, tag, full) => items.push({ step, label, t: t || null, text: finishKo(text || ''), tag: tag || '', full: full || text || '' });
   const via = r.inflow === 'OS' ? 'OS' : r.src === 'oc' ? (r.cxHandoff ? 'CX' : r.remote ? '원격' : '현장') : r.inflow === '콜라비' ? 'CX' : r.inflow === '법인폰·수기' ? '법인폰' : r.inflow || 'CX';
   const lines = a => a.filter(Boolean).join('\n'), L = (r.caseSum && r.caseSum.lines) || {};
   // ① 인입
@@ -1633,7 +1666,7 @@ function tlCards(r, proc) {
   const st = r.viaCollab && r.toss && r.toss.sum && r.toss.sum.steps;
   if (st && st.length) {
     const at = t => { const m = String(t || '').match(/(?:(\d{2})-(\d{2})\s+)?(\d{1,2}):(\d{2})/); if (!m) return null; const d = new Date(r.at); if (m[1]) d.setMonth(+m[1] - 1, +m[2]); d.setHours(+m[3], +m[4], 0, 0); return d; };
-    items = st.map((e, i) => ({ step: 3, label: e.what, t: at(e.t), text: '', tag: i === st.length - 1 && r.toss.sum.resolved ? '해결' : '', full: '' }));
+    items = st.map((e, i) => ({ step: 3, label: finishKo(e.what), t: at(e.t), text: '', tag: i === st.length - 1 && r.toss.sum.resolved ? '해결' : '', full: '' }));
   }
   const cards = `<div class="tlc">${items.map((x, i) => `${i ? '<div class="tlc-arrow">→</div>' : ''}<div class="tlc-card pc${i % 6}"><div class="tlc-h">${esc(x.label)}${x.tag ? ` <span class="tag ${tlTagCls(x.tag)}">${esc(x.tag)}</span>` : ''}</div><div class="tlc-t">${esc(x.t ? dts(x.t).replace(/:00$/, '') : '시각 기록 없음')}</div>${String(x.full || '').split('\n').filter(Boolean).map(l => `<p>${esc(cleanText(l, 400))}</p>`).join('')}</div>`).join('')}</div>`;
   return proc ? cards : `<details class="cs-steps"><summary>처리 현황 보기</summary>${cards}</details>`;
