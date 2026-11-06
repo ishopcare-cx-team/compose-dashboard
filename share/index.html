@@ -1277,7 +1277,8 @@ function scopes() { const o = { '7d': '최근 7일', '30d': '최근 30일' }; mo
 function inScope(r) { if (scope === '7d') return r.at >= addDay(TODAY, -7); if (scope === '30d') return r.at >= addDay(TODAY, -30); return r.date.slice(0, 7) === scope.slice(1); }
 // 상담 내역 4개 탭의 기간: 당일 · 주간(월~일, 전주 · 다음주) · 월별 · 기간 상세(시작일~종료일, 양 끝 포함)
 const CONSULT_VIEWS = ['records', 'process', 'issues', 'voc', 'cands'];
-const PER = { mode: 'week', day: '', week: '', month: '', from: '', to: '' };
+// 처음 보이는 기간: 공유용(고객사)은 당일, 내부용은 주간
+const PER = { mode: (STATIC || !VIEWER.internal) ? 'day' : 'week', day: '', week: '', month: '', from: '', to: '' };
 const mondayOf = d => addDay(startOfDay(d), -((d.getDay() + 6) % 7));
 function perInit() {
   if (PER.day) return;
