@@ -1877,7 +1877,7 @@ const infoBox = rows => `<div class="vp-box info"><div class="vp-h">세부 정�
 const panel = (cls, icon, title, text) => `<div class="vp-box ${cls}"><div class="vp-h"><i>${icon}</i>${esc(title)}</div><div class="vp-t">${text ? esc(text) : '<span class="muted">—</span>'}</div></div>`;
 // 연결된 상담: 흐름 전체 대신 한 줄(접수번호 · 시각 · 매장 · 인입 · 상태 · 짧은 인입 내용)과 '인입 현황에서 보기' 링크만.
 function recLink(r) {
-  const brief = cleanText((r.caseSum && r.caseSum.result) || r.q || r.cat || '', 70);
+  const cs = r.caseSum && r.caseSum.result, brief = cleanText((cs && !clash(cs, r.status) ? cs : '') || r.q || r.cat || '', 70);
   return `<div class="rec-link"><span class="rl-k">연결된 상담</span><b>${esc(r.id)}</b><span class="muted">${dt(r.at).slice(5)}</span><span>${esc(r.store)}</span>${inflowTag(r.inflow)}${statusBadge(r.status)}
     <span class="rl-t">${esc(brief)}</span><button class="btn sm" data-gorec="${esc(r.id)}">인입 현황에서 보기 →</button></div>`;
 }
