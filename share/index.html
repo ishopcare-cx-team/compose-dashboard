@@ -129,6 +129,7 @@
   .ov-tile .ov-sub{font-size:12.5px; font-weight:600; margin-top:7px; color:var(--gray2)}
   .ov-tile.grand{background:linear-gradient(135deg,#0071e3,#4a9bff); border-left-color:#0060c0}
   .ov-tile.grand .ov-name,.ov-tile.grand .ov-sub,.ov-tile.grand .ov-val small{color:rgba(255,255,255,.9)}
+  .ov-tiles .ov-tile.grand .ov-sub{white-space:normal; overflow:visible; text-overflow:clip; overflow-wrap:anywhere}
   .ov-tile.grand .ov-val{color:#fff}
 
   .card{background:var(--canvas); border-radius:var(--radius); padding:24px; box-shadow:var(--shadow); margin-bottom:22px}
@@ -755,7 +756,8 @@ const HC_DEFAULT = [
   ['추가 불편 확인', '', ['그 외에 장비를 사용하시면서 불편했거나 도움이 필요한 부분이 있으신가요?']]
 ].map(([title, detail, lines], i) => ({ number: '①②③④⑤'[i], title, detail, lines }));
 // 실시간 인입의 인입 채널: 슬랙 '출처'(법인폰 · 워크플로 등) → 상담 인입 경로 → 콜라비 순으로 정합니다.
-const INFLOWS = ['콜라비', '원격팀', '법인폰·수기', 'OS', '현장'];
+// 현장에서 받은 건도 원격팀 인입으로 셉니다(2026-11-06 결정).
+const INFLOWS = ['콜라비', '원격팀', '법인폰·수기', 'OS'];
 // 슬랙 AI 분석의 예전 장비·채널 값 → 지금 이름(CS 리포트 ISSUE.CHANNEL_RENAMES와 같음)
 const CH_RENAMES = { '포스': '포스(PC,포스기)', 'pos': '포스(PC,포스기)', 'POS': '포스(PC,포스기)', '주방프린터': '프린터' };
 // 연결 규칙: 원격 AS는 상담 후 LINK_AS_DAYS일 안, 현장 방문은 LINK_VISIT_DAYS일 안의 같은 매장 상담에 붙입니다.
@@ -866,7 +868,7 @@ function buildModel(raw) {
     // 인입 채널: 상담 내역(콜라비)에 있는 건은 상담 인입 경로로(현장 · 원격팀 · 콜라비). 슬랙 '출처'(수기 · 워크플로 · 협업채널)는 상담 내역에 아직 없는 글에만 씁니다.
     // 법인폰: 글 양식의 인입유형 · 상담 인입 경로 · 문의에 '법인폰'이 있거나, 수기 접수 워크플로로 올린 글. 그 밖에 상담 내역에 있으면 콜라비.
     const viaPhone = sl && (/법인폰/.test([sl.intake, c.route, c.question].join(' ')) || sl.source === '워크플로');
-    const inflow = viaPhone ? '법인폰·수기' : c.slackOnly && sl && sl.source && sl.source !== '콜라비' ? (/^(수기|법인폰)$/.test(sl.source) ? '법인폰·수기' : sl.source) : /현장/.test(c.route || '') ? '현장' : /원격/.test(c.route || '') ? '원격팀' : '콜라비';
+    const inflow = viaPhone ? '법인폰·수기' : c.slackOnly && sl && sl.source && sl.source !== '콜라비' ? (/^(수기|법인폰)$/.test(sl.source) ? '법인폰·수기' : sl.source) : /현장/.test(c.route || '') ? '원격팀' : /원격/.test(c.route || '') ? '원격팀' : '콜라비';
     return { id: c.receipt || (c.slackOnly ? `${c.at.slice(2, 10).replace(/-/g, '.')}-S${c.at.slice(11, 16).replace(':', '')}` : `CS-${c.at}`), src: 'cs', inflow, slackOnly: !!c.slackOnly, at, date: ymd(at), store: st ? st.name : (c.store || '—'), skey: st ? st.key : '', slack: sl,
       channel: iss && CHANNELS.includes(iss.channel) ? iss.channel : CHANNELS.includes(aiChannel) ? aiChannel : guessChannel([c.major, c.middle, c.minor, c.question].join(' ')),
       cat: [c.major, c.middle].filter(Boolean).join(' · ') || '미분류', q: c.qTidy || c.question, a: c.qTidy ? (c.aTidy || '') : c.answer, qRaw: c.questionRaw || c.question, aRaw: c.answerRaw || c.answer, qFull: c.question, aFull: c.answer, tidy: !!c.qTidy, caseSum: c.caseSum || null, caseKey: c.receipt || `${c.at}|${c.store}`, caseFix: c.caseFix || '', caseDone: !!(c.caseSum && /해결/.test(c.caseSum.state || '')) && c.caseFix !== '해제', route: c.route || '—', cx: c.cx || '',
@@ -1022,7 +1024,7 @@ function buildModel(raw) {
   TOSS_ONLY.filter(t => t.slack && t.slack.channel === '협업채널' && t.skey).forEach(t => {
     t.asRec = true;
     const sm = t.sum || {}, mth = { '현장 지원': '현장 지원', '원격 지원': '원격지원', 'CS 안내': 'CS안내', '토스플레이스 확인': '토스플레이스 확인' }[sm.method] || (/교체|설치|방문|현장|회수|철거/.test(t.slack.question || '') ? '현장 지원' : '토스플레이스 확인');
-    orphans.push({ id: `${t.date.slice(2).replace(/-/g, '.')}-C${hm(t.at).replace(':', '')}`, src: 'oc', inflow: mth === '현장 지원' ? '현장' : '원격팀', side: '원격', viaCollab: true, at: t.at, date: t.date, store: t.store, skey: t.skey,
+    orphans.push({ id: `${t.date.slice(2).replace(/-/g, '.')}-C${hm(t.at).replace(':', '')}`, src: 'oc', inflow: '원격팀', side: '원격', viaCollab: true, at: t.at, date: t.date, store: t.store, skey: t.skey,
       cat: sm.category || '기능 관련 · 원격 지원', channel: guessChannel(t.slack.question), q: sm.intake || t.slack.question || '협업채널 문의', a: '', method: mth, status: t.done || sm.resolved ? '완료' : '처리중',
       route: '협업채널', cx: '', toss: t, csOwner: '', csAction: '', issue: null, remote: null, visit: null, doneAt: t.done || null, minutes: t.done ? (t.done - t.at) / 60000 : null });
   });
@@ -1496,7 +1498,7 @@ function viewOverview() {
         <div class="fstat"><span>원격 → 현장 방문</span><div><b>${s.avgVisitDays == null ? '—' : s.avgVisitDays.toFixed(1)}</b><small>일 평균</small></div></div>
         <div class="fstat"><span>토스플레이스 회신 <small>(${num(s.toss)}건 · 대기 ${num(s.tossOpen)})</small></span><div><b>${fmtMin(s.avgToss)}</b><small>평균 · 중앙값 ${fmtMin(s.medToss)}</small></div></div></div></div></div>`;
   const catsAll = countBy(rows.filter(r => r.src === 'cs'), r => r.cat), cats = catsAll.slice(0, 8), catsMore = catsAll.slice(8), chs = countBy(rows, r => r.channel), ins = countBy(rows, r => r.inflow);
-  h += `<div class="grid2 even grid-gap"><div class="card"><div class="card-head"><h3>인입 채널별</h3><span class="hint">콜라비 · 원격팀 · 법인폰 · OS · 현장</span></div>${ins.length ? hbars(ins, ins[0][1]) : empty('없음')}</div>
+  h += `<div class="grid2 even grid-gap"><div class="card"><div class="card-head"><h3>인입 채널별</h3><span class="hint">콜라비 · 원격팀 · 법인폰 · OS</span></div>${ins.length ? hbars(ins, ins[0][1]) : empty('없음')}</div>
     <div class="card"><div class="card-head"><h3>장비·채널별 ${src('both')}</h3><span class="hint">원격 건수 함께 표시</span></div>${chs.length ? hbars(chs.map(([k, v]) => [k, v, `원격 ${rows.filter(r => r.channel === k && r.remote).length}`]), chs[0][1]) : empty('없음')}</div></div>`;
   h += `<div class="card hb-wide"><div class="card-head"><h3>문의유형 상위 ${src('cs')}</h3><span class="hint">${catsAll.length > 8 ? `상위 8개 · 전체 ${num(catsAll.length)}개` : `전체 ${num(catsAll.length)}개`}</span></div>${cats.length ? hbars(cats, cats[0][1]) : empty('없음')}${catsMore.length ? `<details class="more-cats" ${OPEN.has('ov:cats') ? 'open' : ''}><summary data-toggle-key="ov:cats">나머지 ${num(catsMore.length)}개 펼치기</summary>${hbars(catsMore, cats[0][1])}</details>` : ''}</div>`;
   // 반복 문의 매장: 누르면 그 매장의 최근 30일 기록이 아래로 펼쳐집니다.
@@ -1614,7 +1616,7 @@ const compress = t => {
 };
 function tlItems(r) {
   if (r.viaCollab && r.toss) {
-    const T = r.toss, sm = T.sum || {}, items = [], via = r.method === '현장 지원' ? '현장' : '원격';
+    const T = r.toss, sm = T.sum || {}, items = [], via = '원격';
     const core = compress(T.slack && T.slack.question).replace(/^\d{1,2}\/\d{1,2}\s*/, '');
     items.push({ step: 1, label: `인입 · ${via}`, t: r.at, text: sm.intake || `${core}${r.status === '완료' ? '. 최종 해결 후 토플로 공유 완료' : ''}`, tag: '', full: [sm.intake || r.q, r.cat ? `문의유형: ${r.cat}` : '', `처리 방식: ${r.method}`].filter(Boolean).join('\n') });
     const ans = T.slack && T.slack.answer, fu = sm.followup || (ans ? (/[?？]\s*$/.test(ans) ? '토플 추가 확인 요청 · 이상 없음' : compress(ans)) : ''), fuT = T.lastAt || T.done;
@@ -1624,7 +1626,7 @@ function tlItems(r) {
   // 다섯 단계 틀: ① 인입 ② 원격 지원 요청 ③ 원격 확인 · 1차 조치 ④ 2차 대응(확인 중인 내용) ⑤ 최종 해결
   const S = r.slack || {}, R = r.remote, T = r.toss, V = r.visit, items = [];
   const add = (step, label, t, text, tag, full) => items.push({ step, label, t: t || null, text: finishKo(text || ''), tag: tag || '', full: full || text || '' });
-  const via = r.inflow === 'OS' ? 'OS' : r.src === 'oc' ? (r.cxHandoff ? 'CX' : r.remote ? '원격' : '현장') : r.inflow === '콜라비' ? 'CX' : r.inflow === '법인폰·수기' ? '법인폰' : r.inflow || 'CX';
+  const via = r.inflow === 'OS' ? 'OS' : r.src === 'oc' ? (r.cxHandoff ? 'CX' : '원격') : r.inflow === '콜라비' ? 'CX' : r.inflow === '법인폰·수기' ? '법인폰' : r.inflow || 'CX';
   const lines = a => a.filter(Boolean).join('\n'), L = (r.caseSum && r.caseSum.lines) || {};
   // ① 인입
   add(1, `인입 · ${via}`, r.at, L.intake || compress(r.q) || r.cat, '', lines([r.qFull || r.q, r.cat ? `문의유형: ${r.cat}` : '', r.channel ? `장비·채널: ${r.channel}` : '', r.cx ? `접수: ${fullName(r.cx)}` : '']));
@@ -1731,8 +1733,8 @@ function recDetail(r, proc) {
 function viewRecords() {
   const scoped = RECS.filter(r => inPeriod(r.at)), rows = recFilter('records', scoped, REC_TAGS), s = stats(rows), p = paged('records', rows, 30);
   const n = v => rows.filter(r => r.inflow === v).length, other = rows.filter(r => !INFLOWS.includes(r.inflow)).length;
-  let h = `<div class="notice"><span class="k">인입</span><span class="t"><b>콜라비 상담(CS 리포트) · 원격팀 · 법인폰 · 현장</b>으로 들어온 컴포즈 문의를 한 줄씩 모읍니다. 원격 AS · 현장 방문 기록은 같은 매장 + 가까운 시각의 상담 아래에 붙고, 상담이 없는 기록은 <b>원격</b> 건으로 따로 들어갑니다. 줄을 누르면 아래로 상세가 펼쳐집니다.</span></div>`;
-  h += `<div class="ov-tiles" style="--n:6">${tile('전체 인입', num(s.total), '건', `완료 ${num(s.done)} · 진행 중 ${num(s.open)}${other ? ` · 기타 채널 ${num(other)}` : ''}`, { grand: true })}${tile('콜라비', num(n('콜라비')), '건', '콜라비 상담 내역', { c: 'var(--accent)' })}${tile('원격팀', num(n('원격팀')), '건', '원격팀이 직접 받은 건', { c: 'var(--orange)' })}${tile('법인폰·수기', num(n('법인폰·수기')), '건', '#컴포즈-tf에 직접 쓴 글(콜라비 입력 전)', { c: 'var(--purple)' })}${tile('OS', num(n('OS')), '건', 'OS팀이 올린 건', { c: 'var(--s2)' })}${tile('현장', num(n('현장')), '건', '현장에서 받은 건', { c: 'var(--green)' })}</div>`;
+  let h = `<div class="notice"><span class="k">인입</span><span class="t"><b>콜라비 상담(CS 리포트) · 원격팀(현장 접수 포함) · 법인폰 · OS</b>로 들어온 컴포즈 문의를 한 줄씩 모읍니다. 원격 AS · 현장 방문 기록은 같은 매장 + 가까운 시각의 상담 아래에 붙고, 상담이 없는 기록은 <b>원격</b> 건으로 따로 들어갑니다. 줄을 누르면 아래로 상세가 펼쳐집니다.</span></div>`;
+  h += `<div class="ov-tiles" style="--n:5">${tile('전체 인입', num(s.total), '건', `완료 ${num(s.done)} · 진행 중 ${num(s.open)}${other ? ` · 기타 채널 ${num(other)}` : ''}`, { grand: true })}${tile('콜라비', num(n('콜라비')), '건', '콜라비 상담 내역', { c: 'var(--accent)' })}${tile('원격팀', num(n('원격팀')), '건', '원격팀 · 현장이 직접 받은 건', { c: 'var(--orange)' })}${tile('법인폰·수기', num(n('법인폰·수기')), '건', '#컴포즈-tf에 직접 쓴 글(콜라비 입력 전)', { c: 'var(--purple)' })}${tile('OS', num(n('OS')), '건', 'OS팀이 올린 건', { c: 'var(--s2)' })}</div>`;
   h += `<div class="card"><div class="card-head"><h3>인입 목록</h3><span class="hint">${perLabel()} · 최신순 · ${p.page}/${p.pages}쪽</span></div>${filterBar('records', scoped, REC_TAGS, rows.length, { closeAll: true })}
     <div class="tbl-scroll"><table class="mcard">${REC_HEAD}<tbody>${p.rows.map(recRow).join('') || `<tr><td colspan="10">${empty('조건에 맞는 인입이 없습니다.')}</td></tr>`}</tbody></table></div>${pager('records', p)}</div>`;
   return h;
