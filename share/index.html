@@ -871,7 +871,10 @@ function buildModel(raw) {
     // 인입 채널: 상담 내역(고객센터)에 있는 건은 상담 인입 경로로(현장 · 원격팀 · 고객센터). 슬랙 '출처'(수기 · 워크플로 · 협업채널)는 상담 내역에 아직 없는 글에만 씁니다.
     // 법인폰: 글 양식의 인입유형 · 상담 인입 경로 · 문의에 '법인폰'이 있거나, 수기 접수 워크플로로 올린 글. 그 밖에 상담 내역에 있으면 고객센터.
     const viaPhone = sl && (/법인폰/.test([sl.intake, c.route, c.question].join(' ')) || sl.source === '워크플로');
-    const inflow = /현장|원격/.test(c.route || '') ? '원격팀' : '고객센터';
+    // 인입 경로: 상담 인입 경로(T열)가 원격 · 현장이면 원격팀. 슬랙 출처가 콜라비 연동(CS Compose Bot)이면 고객센터.
+    // 수기 · 워크플로 업로드는 올린 사람의 팀(고객센터 → 고객센터, 원격팀 · 현장 → 원격팀, OS → OS). 팀을 모르면 고객센터
+    const postTeam = sl && sl.source && sl.source !== '콜라비' && sl.source !== '시트만' ? (/현장/.test(sl.team || '') ? 'OC' : teamOf(sl.team)) : '';
+    const inflow = /현장|원격/.test(c.route || '') || postTeam === 'OC' ? '원격팀' : postTeam === 'OS' ? 'OS' : '고객센터';
     return { id: c.receipt || (c.slackOnly ? `${c.at.slice(2, 10).replace(/-/g, '.')}-S${c.at.slice(11, 16).replace(':', '')}` : `CS-${c.at}`), src: 'cs', inflow, slackOnly: !!c.slackOnly, at, date: ymd(at), store: st ? st.name : (c.store || '—'), skey: st ? st.key : '', slack: sl,
       channel: iss && CHANNELS.includes(iss.channel) ? iss.channel : CHANNELS.includes(aiChannel) ? aiChannel : guessChannel([c.major, c.middle, c.minor, c.question].join(' ')),
       cat: [c.major, c.middle].filter(Boolean).join(' · ') || '미분류', q: c.qTidy || c.question, a: c.qTidy ? (c.aTidy || '') : c.answer, qRaw: c.questionRaw || c.question, aRaw: c.answerRaw || c.answer, qFull: c.question, aFull: c.answer, tidy: !!c.qTidy, caseSum: c.caseSum || null, caseKey: c.receipt || `${c.at}|${c.store}`, caseFix: c.caseFix || '', caseDone: !!(c.caseSum && /해결/.test(c.caseSum.state || '')) && c.caseFix !== '해제', route: c.route || '—', cx: c.cx || '',
