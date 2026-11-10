@@ -764,7 +764,7 @@ const INFLOWS = ['고객센터', '원격팀', 'OS'];
 const CH_RENAMES = { '포스': '포스(PC,포스기)', 'pos': '포스(PC,포스기)', 'POS': '포스(PC,포스기)', '주방프린터': '프린터' };
 // 연결 규칙: 원격 AS는 상담 후 LINK_AS_DAYS일 안, 현장 방문은 LINK_VISIT_DAYS일 안의 같은 매장 상담에 붙입니다.
 // 원격 기록이 상담보다 먼저 적힌 경우(상담 내역 적재가 늦음)도 AS_EARLY_MIN분까지는 같은 건으로 봅니다.
-const LINK = { AS_DAYS: 3, AS_EARLY_MIN: 720, VISIT_DAYS: 10, CLOSED_GRACE_MIN: 60, BULK_MIN_RECORDS: 3 };
+const LINK = { AS_DAYS: 3, AS_EARLY_MIN: 720, VISIT_DAYS: 10, CLOSED_GRACE_MIN: 60, BULK_MIN_RECORDS: 3, DUP_MIRROR_MIN: 5 };
 // 대시보드 시작일(2026-11-06 결정): 모든 목록 · 집계는 이날부터. 장비 조회의 보유 장비 계산에만 그 전 설치 이력을 씁니다.
 const DATA_FROM = '2026-10-07';
 const fromOk = d => !!d && (typeof d === 'string' ? d.slice(0, 10) : ymd(d)) >= DATA_FROM;
@@ -875,7 +875,7 @@ function buildModel(raw) {
     // 수기 · 워크플로 업로드는 올린 사람의 팀(고객센터 → 고객센터, 원격팀 · 현장 → 원격팀, OS → OS). 팀을 모르면 고객센터
     const postTeam = sl && sl.source && sl.source !== '콜라비' && sl.source !== '시트만' ? (/현장/.test(sl.team || '') ? 'OC' : teamOf(sl.team)) : '';
     const inflow = /현장|원격/.test(c.route || '') || postTeam === 'OC' ? '원격팀' : postTeam === 'OS' ? 'OS' : '고객센터';
-    return { id: c.receipt || (c.slackOnly ? `${c.at.slice(2, 10).replace(/-/g, '.')}-S${c.at.slice(11, 16).replace(':', '')}` : `CS-${c.at}`), src: 'cs', inflow, slackOnly: !!c.slackOnly, at, date: ymd(at), store: st ? st.name : (c.verify ? '매장 확인 중' : (c.store || '—')), skey: st ? st.key : '', slack: sl,
+    return { id: c.receipt || (c.slackOnly ? `${c.at.slice(2, 10).replace(/-/g, '.')}-S${c.at.slice(11, 16).replace(':', '')}` : `CS-${c.at}`), src: 'cs', inflow, slackOnly: !!c.slackOnly, dup: !!c.dup, at, date: ymd(at), store: st ? st.name : (c.verify ? '매장 확인 중' : (c.store || '—')), skey: st ? st.key : '', slack: sl,
       channel: iss && CHANNELS.includes(iss.channel) ? iss.channel : CHANNELS.includes(aiChannel) ? aiChannel : guessChannel([c.major, c.middle, c.minor, c.question].join(' ')),
       cat: [c.major, c.middle].filter(Boolean).join(' · ') || '미분류', q: c.qTidy || c.question, a: c.qTidy ? (c.aTidy || '') : c.answer, qRaw: c.questionRaw || c.question, aRaw: c.answerRaw || c.answer, qFull: c.question, aFull: c.answer, tidy: !!c.qTidy, caseSum: c.caseSum || null, caseKey: c.receipt || `${c.at}|${c.store}`, caseFix: c.caseFix || '', caseDone: !!(c.caseSum && /해결/.test(c.caseSum.state || '')) && c.caseFix !== '해제', route: c.route || '—', cx: c.cx || '',
       method: c.method || '—', status: c.status || '처리중', doneAt: done, minutes: validMinutes(c.minutes != null ? c.minutes : done ? (done - at) / 60000 : null),
@@ -898,6 +898,7 @@ function buildModel(raw) {
         if (b.slack) keep.slack = b.slack;
         keep.status = a.status === '완료' || b.status === '완료' ? '완료' : b.status;
         keep.slackOnly = a.slackOnly && b.slackOnly;
+        keep.dup = a.dup && b.dup;
         keep.dupIds = (keep.dupIds || []).concat(other.id);
         drop.add(other);
       }
@@ -947,11 +948,13 @@ function buildModel(raw) {
     const k = skey(a.store || a.branch), text = `${a.req} ${a.note}`;
     const open = c => !(c.doneAt && a.at - c.doneAt > LINK.CLOSED_GRACE_MIN * 60000);
     if (a.tfTs) csRecs.forEach(c => { if (c.slack && String(c.slack.link || '').includes('p' + a.tfTs.replace('.', ''))) pairs.push({ ai, c, score: -1e9 }); });
-    if (!k) csRecs.forEach(c => { const d = Math.abs(c.at - a.at); if (d <= 10 * 60000 && (c.method === '원격지원' || /원격/.test(c.cat))) pairs.push({ ai, c, score: -1e8 + d / 60000 }); });
+    if (!k) csRecs.forEach(c => { const d = Math.abs(c.at - a.at); if (d <= (c.dup ? LINK.DUP_MIRROR_MIN : 10) * 60000 && (c.method === '원격지원' || /원격/.test(c.cat))) pairs.push({ ai, c, score: -1e8 + d / 60000 }); });
     else (byStore[k] || []).forEach(c => {
       if (c.src !== 'cs' || !open(c)) return;
       const diff = (a.at - c.at) / 60000;
       if (diff < -LINK.AS_EARLY_MIN || diff > LINK.AS_DAYS * 1440) return;
+      // 중복(:x:) 글에는 같은 글이 원격팀 원장에 다시 잡힌 기록(앞뒤 DUP_MIRROR_MIN분)만 붙입니다. 앞선 콜의 원격 요청을 가져가지 않게.
+      if (c.dup && Math.abs(diff) > LINK.DUP_MIRROR_MIN) return;
       pairs.push({ ai, c, score: (diff < 0 ? 2880 - diff : diff) + (c.method === '원격지원' || c.method === '방문점검' ? 0 : 120) + (sameDevice(c.channel, text) ? 0 : 240) });
     });
   });
@@ -1031,6 +1034,8 @@ function buildModel(raw) {
     if (!asked || !fromOk(asked) || STORE_EXCLUDE.test(t.store || '') || isTestText(t.question || '') || (!keys.length && !composeText(t.question))) return;
     let best = RECS.find(r => r.verify && r.verify.state === '일치' && r.verify.channel === '#협업채널_컴포즈' && String(r.verify.at).slice(0, 16) === `${t.date} ${t.time}`.slice(0, 16) && !(r.toss && r.toss.slack)) || null, bestDiff = best ? -1 : Infinity;
     if (!best) RECS.forEach(r => { if (r.src !== 'cs' || !keys.includes(r.skey)) return; const d = Math.abs(asked - r.at); if (d <= 864e5 && d < bestDiff && !(r.toss && r.toss.slack)) { best = r; bestDiff = d; } });
+    // 시트 상담이 없으면: 같은 매장 · 같은 날 그 전에 들어온 콜(원격 요청 기록)에 붙입니다. 토스플레이스 이관 글은 콜이 아니라 그 콜의 처리 현황입니다.
+    if (!best) orphans.forEach(r => { if (r.viaCollab || !keys.includes(r.skey) || r.date !== ymd(asked) || r.at - asked > LINK.DUP_MIRROR_MIN * 60000 || (r.toss && r.toss.slack)) return; const d = Math.abs(asked - r.at); if (d < bestDiff) { best = r; bestDiff = d; } });
     const info = { asked, done: done || (t.status === '회신' ? asked : null), sum: t.sum || null, lastAt: P(t.lastAt), slack: { question: t.question, answer: t.answer, status: t.status, channel: t.channel || '고객센터-플레이스' } };
     if (best) { best.toss = Object.assign({}, best.toss || {}, info, { asked: (best.toss && best.toss.asked) || asked, done: (best.toss && best.toss.done) || info.done }); tossLinked++; }
     else { const st = SM[keys[0]]; TOSS_ONLY.push(Object.assign({ id: `토플-${t.date.slice(2).replace(/-/g, '.')}-${pad(n + 1)}`, at: asked, date: ymd(asked), store: st ? st.name : t.store, skey: keys[0] || '' }, info)); }
@@ -1044,6 +1049,7 @@ function buildModel(raw) {
   });
   CS_LAST = RECS.filter(r => r.src === 'cs' && !r.slackOnly).reduce((m, r) => r.date > m ? r.date : m, '');
   RECS = RECS.concat(orphans).sort((a, b) => b.at - a.at);
+  foldDuplicates();
   linkReinflow();
   groupIssues();
   // 처리상태: 고객센터 · 슬랙 상태가 아직 '처리중'이어도, 관련 채널 기록을 읽어 해결로 확인된 건(건별 정리)은 완료로 봅니다.
@@ -1118,6 +1124,32 @@ const sameThread = (a, b) => { const x = threadOf(a.slack && a.slack.link), y = 
 // 실제 이슈가 같은지: 문의 글의 핵심 낱말이 2개 이상 · 절반 이상 겹침('재인입 · 동일 증상' 같은 말이 있으면 1개 이상)
 const sameIssueText = (a, b, words) => { const x = issWords([a.q, a.qRaw].join(' ')), y = issWords([b.q, b.qRaw].join(' ')); if (!x.size || !y.size) return false;
   let n = 0; x.forEach(w => { if (y.has(w)) n++; }); return words ? n >= 1 : n >= 2 && n / Math.min(x.size, y.size) >= 0.5; };
+// 중복(:x:) 표시 글 묶기(2026-11-10 결정): [인입 현황] 건수 = 통화(콜) 수. 중복 글은 콜이 아니므로 같은 매장 · 같은 날 가장 가까운 앞선 콜에 묶고 건수에서 뺍니다.
+//   · 앞선 콜의 문의 글이 빈약하면('확인 후 미완료' 등) 중복 글의 문의 내용으로 채우고, 내용이 다르면 '중복 접수 글'로 처리 현황에 남기고, 같으면 버립니다.
+//   · 중복 글에 붙어 있던 토스플레이스 이관 · 원격 · 현장 기록은 앞선 콜에 없을 때만 옮깁니다(같은 글이 원격팀 원장에 다시 잡힌 기록은 버림).
+//   · 앞선 콜이 없으면 그 글이 첫 접수이므로 그대로 1건으로 셉니다.
+function foldDuplicates() {
+  const drop = new Set(), tol = LINK.DUP_MIRROR_MIN * 60000;
+  const weak = t => { const s = String(t || '').trim(); return s.length < 12 || /^(확인 후|내용 정리 중|원격 지원 요청)/.test(s) || /미완료$/.test(s); };
+  RECS.filter(r => r.dup).sort((a, b) => a.at - b.at).forEach(d => {
+    let m = null;
+    if (d.skey) RECS.forEach(r => {
+      if (r === d || r.dup || r.viaCollab || drop.has(r) || r.skey !== d.skey || r.date !== d.date || r.at - d.at > tol) return;
+      if (!m || Math.abs(d.at - r.at) < Math.abs(d.at - m.at)) m = r;
+    });
+    if (!m) { d.dup = false; return; }
+    if (weak(m.q) && !weak(d.q)) {
+      Object.assign(m, { q: d.q, qRaw: d.qRaw, qFull: d.qFull, tidy: d.tidy });
+      if (!m.a && d.a) m.a = d.a;
+      if (d.cat && d.cat !== '미분류' && /원격 지원$|자체 인입|미분류/.test(m.cat || '')) m.cat = d.cat;
+      if ((!m.channel || m.channel === '기타') && d.channel) m.channel = d.channel;
+    } else if (d.q && !sameIssueText(m, d, true)) m.dupNotes = (m.dupNotes || []).concat({ at: d.at, text: d.q });
+    ['toss', 'remote', 'visit', 'slack', 'issue'].forEach(k => { if (d[k] && !m[k]) m[k] = d[k]; });
+    m.dupIds = (m.dupIds || []).concat(d.id, d.dupIds || []);
+    drop.add(d);
+  });
+  if (drop.size) RECS = RECS.filter(r => !drop.has(r));
+}
 function linkReinflow() {
   const bySk = {};
   RECS.forEach(r => { r.prevRec = null; r.nextRecs = []; if (r.skey) (bySk[r.skey] = bySk[r.skey] || []).push(r); });
@@ -1652,6 +1684,8 @@ function tlItems(r) {
   // ① 인입
   add(1, `인입 · ${via}`, r.at, L.intake || compress(r.q) || r.cat, '', lines([r.qFull || r.q, r.cat ? `문의유형: ${r.cat}` : '', r.channel ? `장비·채널: ${r.channel}` : '', r.cx ? `접수: ${fullName(r.cx)}` : '']));
   const said = new Set([compress(r.q || r.cat)]), uniq = t => { const b = compress(t); if (!b || said.has(b)) return ''; said.add(b); return b; };
+  // 같은 콜을 다시 올린 중복(:x:) 글 중 내용이 다른 것
+  (r.dupNotes || []).forEach(n => { const t = uniq(n.text); if (t) add(1, '중복 접수 글', n.at, t, '', n.text); });
   // ② 원격 지원 요청
   if (R && (R.linked || R.req || S.remoteAt)) add(2, '원격팀 지원 요청', P(S.remoteAt) || R.start || R.handoff, L.request || uniq(R.req) || '원격 지원 요청', '',
     lines([R.req || '원격팀 지원 요청', R.requester ? `요청: ${fullName(R.requester)}${R.requesterTeam ? ` (${R.requesterTeam})` : ''}` : '']));
