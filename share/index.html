@@ -244,6 +244,9 @@
   .tl{position:relative; padding-left:18px}
   .tl::before{content:""; position:absolute; left:5px; top:6px; bottom:6px; width:2px; background:var(--line-soft)}
   .tl-i{position:relative; padding:6px 0 10px}
+  .eq-core{padding:10px 12px; border-radius:10px; background:var(--surface); border:1px solid var(--line-soft); font-size:13px; line-height:1.6; margin-bottom:10px}
+  .eq-core b{margin-right:6px}
+  details.raw{margin-top:3px; font-size:12px; color:var(--muted)} details.raw summary{cursor:pointer}
   .tl-i::before{content:""; position:absolute; left:-17px; top:12px; width:10px; height:10px; border-radius:50%; background:var(--canvas); border:2px solid var(--s1)}
   .tl-i.oc::before{border-color:var(--s2); background:var(--accent)}
   .tl-i.vs::before{border-color:var(--s3)}
@@ -797,6 +800,8 @@ const REMOTE_FIXES = {
   '2026-10-08 06:30:06': { recheck: true, why: '10/7 수원인계점 건 원격팀 재점검(옵션별 출력 설정)' }
 };
 
+// 지점 장비 핵심(서버 AI 정리): skey → 1~2문장
+let EQCORE = {};
 let RAW = null, TODAY = new Date(), RECS = [], ISSUES = [], VOC = [], HAPPY = [], HCQ = HC_DEFAULT, STORES = [], SM = {}, CHECK_ITEMS = [], LINKSTAT = {}, VISIT_ONLY = [], CS_LAST = '', TOSS_ONLY = [], CANDS = [];
 
 const pad = n => String(n).padStart(2, '0');
@@ -882,6 +887,7 @@ function buildModel(raw) {
   HC_TYPES = Array.isArray(raw.happyTypes) && raw.happyTypes.length && typeof raw.happyTypes[0] === 'object' ? raw.happyTypes : HC_TYPES_DEFAULT.filter(t => t.layout === 'survey' || raw.happyLog);
   const surveyName = (HC_TYPES.find(t => t.layout === 'survey') || HC_TYPES_DEFAULT[0]).name;
   // 통화 기록(교육 및 기타 등): 통화 1건당 1행. 최신순.
+  EQCORE = {}; Object.entries(raw.eqCore || {}).forEach(([k, v]) => { if (v) EQCORE[skey(k)] = v; });
   HCLOG = (raw.happyLog || []).filter(h => !STORE_EXCLUDE.test(h.store || '')).map((h, n) => Object.assign({}, h, { key: `hl:${n}`, t: P(h.at) }))
     .sort((a, b) => (b.t || 0) - (a.t || 0));
   HAPPY = (raw.happy || []).filter(h => !STORE_EXCLUDE.test(h.store || '')).map((h, n) => Object.assign({}, h, { type: surveyName, key: `hc:${n}`, answers: HCQ.map((q, i) => { const a = (h.answers || [])[i]; return a && typeof a === 'object' ? a : { result: a || '', answer: '' }; }) }));
@@ -905,7 +911,7 @@ function buildModel(raw) {
     const inflow = /현장|원격/.test(c.route || '') || postTeam === 'OC' ? '원격팀' : postTeam === 'OS' ? 'OS' : '고객센터';
     return { id: c.receipt || (c.slackOnly ? `${c.at.slice(2, 10).replace(/-/g, '.')}-S${c.at.slice(11, 16).replace(':', '')}` : `CS-${c.at}`), src: 'cs', inflow, slackOnly: !!c.slackOnly, dup: !!c.dup, at, date: ymd(at), store: st ? st.name : (c.verify ? '매장 확인 중' : (c.store || '—')), skey: st ? st.key : '', slack: sl,
       channel: iss && CHANNELS.includes(iss.channel) ? iss.channel : CHANNELS.includes(aiChannel) ? aiChannel : guessChannel([c.major, c.middle, c.minor, c.question].join(' ')),
-      cat: [c.middle, c.minor].filter(Boolean).join(' · ') || c.major || '미분류', catAll: [c.major, c.middle, c.minor].filter(Boolean).join(' · '), io: ioOf(c.io), q: c.qTidy || c.question, a: c.qTidy ? (c.aTidy || '') : c.answer, qRaw: c.questionRaw || c.question, aRaw: c.answerRaw || c.answer, qFull: c.question, aFull: c.answer, tidy: !!c.qTidy, caseSum: c.caseSum || null, caseKey: c.receipt || `${c.at}|${c.store}`, caseFix: c.caseFix || '', caseDone: !!(c.caseSum && /해결/.test(c.caseSum.state || '')) && c.caseFix !== '해제', route: c.route || '—', cx: c.cx || '',
+      cat: [c.middle, c.minor].filter(Boolean).join(' · ') || c.major || '미분류', catAll: [c.major, c.middle, c.minor].filter(Boolean).join(' · '), io: ioOf(c.io), q: c.qTidy || c.question, a: c.qTidy ? (c.aTidy || '') : c.answer, qRaw: c.questionRaw || c.question, aRaw: c.answerRaw || c.answer, qFull: c.question, aFull: c.answer, tidy: !!c.qTidy, caseSum: c.caseSum || null, line: c.doneLine || '', caseKey: c.receipt || `${c.at}|${c.store}`, caseFix: c.caseFix || '', caseDone: !!(c.caseSum && /해결/.test(c.caseSum.state || '')) && c.caseFix !== '해제', route: c.route || '—', cx: c.cx || '',
       method: c.method || '—', status: c.status || '처리중', doneAt: done, minutes: validMinutes(c.minutes != null ? c.minutes : done ? (done - at) / 60000 : null),
       toss: c.tossAsked ? { asked: P(c.tossAsked), done: P(c.tossDone) } : null, verify: c.verify || null, storeFrom: c.storeFrom || '', csOwner: c.owner || '', csAction: c.action || '', issue: iss || null, remote: null, visit: null };
   }).filter(Boolean);
@@ -998,7 +1004,7 @@ function buildModel(raw) {
   asRecs.forEach((a, ai) => {
     const k = skey(a.store || a.branch);
     const fix = REMOTE_FIXES[a.atFull] || {}, c = pairOf.get(ai) || null, bulk = new Set(a.bulk);
-    const remote = { requesterTeam: a.requesterTeam || '', requester: a.requester || '', owner: fullName(a.emp), start: a.at, req: a.req, action: a.note, intake: a.intake, status: a.status, cat: a.cat || 'as', linked: true,
+    const remote = { requesterTeam: a.requesterTeam || '', requester: a.requester || '', owner: fullName(a.emp), start: a.at, req: a.req, action: a.note, line: a.doneLine || '', intake: a.intake, status: a.status, cat: a.cat || 'as', linked: true,
       ackBy: a.ackBy || '', ackAt: bulk.has('ackAt') ? null : P(a.ackAt), startBy: a.startBy || '', startAt: bulk.has('startAt') ? null : P(a.startAt), result: a.result || '', resultAt: bulk.has('resultAt') ? null : P(a.resultAt),
       bulk: a.bulk.length ? a.bulk : null, fixNote: fix.why || '' };
     // 결과 시각 보정
@@ -1013,7 +1019,7 @@ function buildModel(raw) {
     // 고객센터(상담 내역)와 대조해 같은 매장 상담 이력이 없으면 원격팀 자체 인입입니다. 단, CX 이관 표시(컴포즈 이모지)가 있으면 CX 인입(고객센터)입니다.
     else ocRec({ id: orphanId(`${a.date.slice(2).replace(/-/g, '.')}-R${hm(a.at).replace(':', '')}`), cat: '기기(기능) 오류 · 원격 지원', inflow: teamOf(a.requesterTeam) === 'OS' ? 'OS' : a.cx || teamOf(a.requesterTeam) === 'CX' ? '고객센터' : '원격팀', cxHandoff: !!a.cx, unlinked: true, store: a.store || a.branch || '매장 미기재', at: a.at, channel: guessChannel(`${a.req} ${a.note}`),
       q: a.req, a: '', method: '원격지원', status: a.status === 'done' ? '완료' : '처리중', remote: Object.assign(remote, { handoff: null }), special: fix.recheck ? '재점검 후 공유건' : selfBulk ? '원격팀 자체 해결' : '', noTime: !!fix.recheck || selfBulk });
-    const st = SM[k]; if (st) st.events.push({ date: a.date, type: 'AS', src: '원격', text: [a.req, a.note].filter(Boolean).join(' → '), by: a.emp, items: mentionItems(`${a.req} ${a.note}`), rec: c ? c.id : null });
+    const st = SM[k]; if (st) st.events.push({ date: a.date, type: 'AS', src: '원격', text: [a.req, a.note].filter(Boolean).join(' → '), line: a.doneLine || '', eqCheck: a.eqCheck || '', by: a.emp, items: mentionItems(`${a.req} ${a.note}`), rec: c ? c.id : null });
   });
   // CS에서 원격지원으로 적었지만 원격팀 기록과 연결되지 않은 상담: CS의 원격 담당자 · 조치 내용으로 카드를 만듭니다.
   let csOnly = 0;
@@ -1200,6 +1206,7 @@ function foldSameIssue() {
     if (!m || r.at - (m.lastAt || m.at) > 864e5) { last.set(k, r); return; }
     m.lastAt = r.at; m.status = r.status; if (r.doneAt) m.doneAt = r.doneAt; if (rank(r.method) > rank(m.method)) m.method = r.method;
     ['toss', 'remote', 'visit', 'slack', 'issue', 'caseSum'].forEach(x => { if (r[x] && !m[x]) m[x] = r[x]; });
+    if (r.line) m.line = r.line;   // 묶인 건의 처리 한 줄은 마지막 기록 기준
     m.sameNotes = (m.sameNotes || []).concat({ at: r.at, text: `${r.id} · ${r.status}${r.q ? ` · ${r.q}` : ''}` });
     m.sameIds = (m.sameIds || []).concat(r.id, r.sameIds || [], r.dupIds || []);
     drop.add(r);
@@ -1297,7 +1304,7 @@ function demoRaw() {
     else if (tpl.act && (tpl.visit || rnd() < .86)) {
       c.method = '원격지원'; const ocAt = addMin(at, Math.round(5 + Math.pow(rnd(), 2) * 110)), emp = pick(['원격1', '원격2', '원격3']), end = addMin(ocAt, ri(10, 45));
       c.owner = emp; c.action = end <= NOW ? tpl.act : '';
-      as.push({ date: ymd(ocAt), time: hm(ocAt), store: (rnd() < .5 ? '컴포즈커피 ' : '') + s.name, branch: s.name, emp, intake: 'online', status: end <= NOW ? 'done' : 'pending', req: tpl.q, note: end <= NOW ? tpl.act : '' });
+      as.push({ date: ymd(ocAt), time: hm(ocAt), store: (rnd() < .5 ? '컴포즈커피 ' : '') + s.name, branch: s.name, emp, intake: 'online', status: end <= NOW ? 'done' : 'pending', req: tpl.q, note: end <= NOW ? tpl.act : '', doneLine: end <= NOW ? `${tpl.q.split(/[.,]/)[0].slice(0, 18)}, ${String(tpl.act).slice(0, 16)}` : '', eqCheck: rnd() < .8 ? 'Y' : 'N' });
       done = end;
       if (tpl.visit) { c.method = '방문점검'; let vd = addDay(end, wpick([0, 1, 2, 3, 4], [2, 4, 3, 1, 1])); vd.setHours(ri(10, 17)); if (vd < end) vd = addMin(end, ri(60, 180));
         visits.push({ id: `V${visits.length + 1}`, date: ymd(end), time: hm(end), store: `컴포즈커피 ${s.name}`, kind: 'AS', status: vd <= NOW ? 'done' : 'pending', visitDate: ymd(vd), route: '컴포즈', equip: tpl.visit, assignee: pick(['방문1', '방문2', '지사A']) }); done = vd; }
@@ -1934,19 +1941,27 @@ function saveEquip(key) {
 // 장비 이력: '상담' 칸의 접수번호를 누르면 그 줄 아래에 상담 상세가 펼쳐집니다.
 // 시작일 전 이력은 보유 장비 계산에만 쓰고 목록에는 넣지 않습니다.
 const shownEvents = s => s.events.filter(e => fromOk(e.date));
+// 장비 이력: 실제 장비를 점검 · 조치한 기록만 보여 줍니다(AI 처리 한 줄이 '장비 점검 아님'으로 본 원격 AS는 빼고, 인입 현황에서 봄).
+// 내용은 AI가 처리한 내용 기준으로 정리한 한 줄(없으면 원문). 내부용은 [원문]으로 전달할 때 쓴 글도 볼 수 있습니다.
+// 위에는 지점 전체 이력을 훑어본 핵심 요약(지점 장비 핵심).
+const equipEvents = s => shownEvents(s).filter(e => e.eqCheck !== 'N');
+const rawBox = (line, raw) => mode !== 'share' && line && raw && line !== raw ? `<details class="raw"><summary>원문</summary>${esc(raw)}</details>` : '';
 function equipHistory(s) {
-  if (!shownEvents(s).length) return empty('이력이 없습니다.');
-  return `<div class="tbl-scroll"><table><thead><tr><th>일자</th><th>구분</th><th>장비</th><th>내용</th><th>담당</th><th>출처</th><th>상담</th></tr></thead><tbody>${shownEvents(s).map(e => {
+  const list = equipEvents(s), skipped = shownEvents(s).length - list.length, core = EQCORE[s.key];
+  const head = (core ? `<div class="eq-core"><b>핵심</b>${esc(core)}</div>` : '') + (skipped ? `<div class="hint" style="margin-bottom:6px">장비 점검이 아닌 문의 ${skipped}건(결제 · 정산 · 사용법 등)은 빼고 보여요. 인입 현황에서 볼 수 있어요.</div>` : '');
+  if (!list.length) return head + empty('장비 점검 이력이 없습니다.');
+  return head + `<div class="tbl-scroll"><table><thead><tr><th>일자</th><th>구분</th><th>장비</th><th>내용</th><th>담당</th><th>출처</th><th>상담</th></tr></thead><tbody>${list.map(e => {
     const rec = e.rec && RECS.find(r => r.id === e.rec), key = rec ? `rec:${rec.id}` : '';
-    return `<tr><td style="white-space:nowrap">${esc(e.date)}${e.pending ? ' <span class="tag warn">예정</span>' : ''}</td><td><span class="badge b-gray ${e.src === '원격' ? 'm-remote' : 'm-visit'}">${esc(e.type)}</span></td><td>${(e.items || []).map(it => `<span class="eq-item">${esc(it.name)}${it.qty > 1 ? ' ×' + it.qty : ''}</span>`).join('') || '<span class="muted">—</span>'}</td><td>${esc(e.text || '—')}</td><td style="white-space:nowrap">${esc(e.by || '—')}</td><td class="muted" style="white-space:nowrap">${esc(e.src)}</td><td style="white-space:nowrap">${rec ? `<button class="link" data-open="${esc(key)}">${esc(rec.id)}${caret(key)}</button>` : '<span class="muted">—</span>'}</td></tr>`
+    return `<tr><td style="white-space:nowrap">${esc(e.date)}${e.pending ? ' <span class="tag warn">예정</span>' : ''}</td><td><span class="badge b-gray ${e.src === '원격' ? 'm-remote' : 'm-visit'}">${esc(e.type)}</span></td><td>${(e.items || []).map(it => `<span class="eq-item">${esc(it.name)}${it.qty > 1 ? ' ×' + it.qty : ''}</span>`).join('') || '<span class="muted">—</span>'}</td><td>${esc(e.line || e.text || '—')}${rawBox(e.line, e.text)}</td><td style="white-space:nowrap">${esc(e.by || '—')}</td><td class="muted" style="white-space:nowrap">${esc(e.src)}</td><td style="white-space:nowrap">${rec ? `<button class="link" data-open="${esc(key)}">${esc(rec.id)}${caret(key)}</button>` : '<span class="muted">—</span>'}</td></tr>`
       + (rec && OPEN.has(key) ? `<tr class="xd"><td colspan="7">${recDetail(rec)}</td></tr>` : '');
   }).join('')}</tbody></table></div>`;
 }
+// 처리 타임라인: 전달할 때 쓴 말 대신 AI가 읽고 정리한 '처리한 내용' 한 문장(처리 한 줄 → 건별 정리 한 줄 → 원문 순).
 function storeTimeline(s) {
   const evs = [];
   RECS.filter(r => r.skey === s.key).forEach(r => {
-    if (r.src === 'cs') evs.push({ t: r.at, cls: '', w: `${dt(r.at)} · ${r.inflow} · ${r.channel}`, x: [r.q, r.a].filter(Boolean).join(' → ') || r.cat });
-    if (r.remote && r.remote.start) evs.push({ t: r.remote.start, cls: 'oc', w: `${dt(r.remote.start)} · 원격${r.src === 'oc' ? ' 단독' : ''}`, x: [r.src === 'oc' ? r.q : '', r.remote.action].filter(Boolean).join(' → ') || '처리 내용 없음' });
+    if (r.src === 'cs') { const raw = [r.q, r.a].filter(Boolean).join(' → ') || r.cat; evs.push({ t: r.at, cls: '', w: `${dt(r.at)} · ${r.inflow} · ${r.channel}`, x: r.line || (r.caseSum && r.caseSum.headline) || raw, raw }); }
+    if (r.remote && r.remote.start) { const raw = [r.src === 'oc' ? r.q : '', r.remote.action].filter(Boolean).join(' → ') || '처리 내용 없음'; evs.push({ t: r.remote.start, cls: 'oc', w: `${dt(r.remote.start)} · 원격${r.src === 'oc' ? ' 단독' : ''}`, x: r.remote.line || raw, raw }); }
     if (r.visit) evs.push({ t: r.visit.date, cls: 'vs', w: `${ymd(r.visit.date)} · 현장 방문${r.visit.pending ? ' 예정' : ''}`, x: r.visit.action });
   });
   shownEvents(s).filter(e => e.src === '방문' && e.type === '설치').forEach(e => evs.push({ t: P(e.date), cls: 'vs', w: `${e.date} · 현장 설치`, x: e.text }));
@@ -1964,7 +1979,7 @@ function storeDetail(s) {
     <div class="grid2 even grid-gap"><div class="card" style="margin:0"><div class="card-head"><h3>🧰 장비 ${src('oc')}</h3></div>${equipTable(s)}</div>
     <div class="card" style="margin:0"><div class="card-head"><h3>✅ 장비 설정 체크 ${src('cs')}</h3><span class="hint">매장 사전체크</span></div>${checkBox(s)}</div></div>`;
   h += `<div class="grid2"><div class="card" style="margin:0"><div class="card-head"><h3>처리 타임라인 ${src('both')}</h3><span class="hint">CX 상담 · 원격 · 현장을 시간순으로</span></div>
-    ${evs.length ? `<div class="tl">${evs.slice(0, 30).map(e => `<div class="tl-i ${e.cls}"><div class="w">${esc(e.w)}</div><div class="x">${esc(e.x)}</div></div>`).join('')}</div>` : empty('기록이 없습니다.')}</div>
+    ${evs.length ? `<div class="tl">${evs.slice(0, 30).map(e => `<div class="tl-i ${e.cls}"><div class="w">${esc(e.w)}</div><div class="x">${esc(e.x)}${rawBox(e.x, e.raw)}</div></div>`).join('')}</div>` : empty('기록이 없습니다.')}</div>
     <div><div class="card"><div class="card-head"><h3>해피콜 ${src('cs')}</h3></div>${hc ? `<div style="margin-bottom:8px">${statusBadge(hc.status)} <span class="hint">${esc(hc.callDate || '예정')}</span></div>${hcChips(hc)}` : hl.length ? '' : '<div class="muted">해피콜 기록이 없습니다.</div>'}${hl.length ? `<div class="side-list" style="margin-top:8px">${hl.map(x => `<div><span class="hint">${esc(String(x.at || '').slice(0, 10))}</span> <span class="tag">${esc(x.type)}</span>${esc(x.contact || x.requester || '')} ${hcResBadge(x.result, x.followup)}</div>`).join('')}</div>` : ''}</div>
     <div class="card" style="margin:0"><div class="card-head"><h3>통합 이슈 · 개선 요청 ${src('cs')}</h3></div>${iss.length || voc.length ? `<div class="side-list">${iss.slice(0, 6).map(i => `<div><span class="hint">${esc(i.date)}</span> ${kindTag(i.kind)} ${esc(i.content)} ${statusBadge(i.status)}</div>`).join('')}${voc.map(v => `<div><span class="hint">${esc(v.id)}</span> <span class="tag">${esc(v.kind)}</span>${esc(v.title)} <span class="badge b-gray">${esc(v.status)}</span></div>`).join('')}</div>` : '<div class="muted">등록된 이슈가 없습니다.</div>'}</div></div></div></div>`;
   return h;
@@ -2003,7 +2018,7 @@ function viewEquip() {
     <div class="tbl-scroll"><table><thead><tr><th>지점</th><th>장비</th><th class="num">기록</th><th>최근 기록</th><th>설정 체크 ${src('cs')}</th></tr></thead><tbody>
     ${p.rows.map(s => { const miss = checkMissing(s), key = `eq:${s.key}`; return xrow(key, `<td style="font-weight:700;color:var(--accent-deep);white-space:nowrap">${esc(s.name)}${caret(key)}</td><td>${s.inv.length ? s.inv.map(o => `<span class="eq-item ${o.removed ? 'off' : ''}">${esc(o.name)}${o.qty > 1 ? ' ×' + o.qty : ''}</span>`).join('') : '<span class="muted">장비 기록 없음</span>'}</td><td class="num">${s.events.length || '·'}</td><td>${s.events[0] ? esc(s.events[0].date) : '—'}</td><td>${checkSummary(s)}${miss.length ? ` <span class="tag red">${miss.map(c => esc(c.short || c.col)).join(', ')}</span>` : ''}</td>`, 5,
       () => `<div style="padding:10px 4px"><div class="hint" style="margin-bottom:10px">${s.code ? `OKPOS 매장코드 ${esc(s.code)} · ` : ''}설치 ${esc(s.installed || '—')}</div>${equipTable(s)}${equipEditor(s)}
-        <div class="grid2" style="margin-top:14px"><div class="card" style="margin:0"><div class="card-head"><h3>장비 이력 ${src('oc')}</h3><span class="hint">최신순 · ${shownEvents(s).length}건</span></div>${equipHistory(s)}</div>
+        <div class="grid2" style="margin-top:14px"><div class="card" style="margin:0"><div class="card-head"><h3>장비 이력 ${src('oc')}</h3><span class="hint">최신순 · ${equipEvents(s).length}건</span></div>${equipHistory(s)}</div>
         <div class="card" style="margin:0"><div class="card-head"><h3>✅ 장비 설정 체크 ${src('cs')}</h3></div>${checkBox(s)}</div></div></div>`); }).join('') || `<tr><td colspan="5">${empty('조건에 맞는 지점이 없습니다.')}</td></tr>`}
     </tbody></table></div>${pager('equip', p)}</div>`;
   return h;
