@@ -1121,6 +1121,9 @@ function buildModel(raw) {
   // 처리 방식 우선순위: 현장 방문 > 원격 기록 > 상담 내역 처리 방식. 카드 · 막대 · 처리 내역이 모두 이 값을 씁니다.
   RECS.forEach(r => { if (r.method === 'CS안내' && r.remote && r.remote.linked) { r.methodRaw = r.method; r.method = '원격지원'; } });
   RECS.forEach(r => { if (!r.method || r.method === '—') { r.method = r.visit ? '방문점검' : r.remote ? '원격지원' : r.toss ? '토스플레이스 확인' : r.status === '완료' ? 'CS안내' : '미분류'; r.methodGuess = true; } });
+  // 토플 확인 이모지(2026-11-12 결정): 슬랙 접수 글에 '토플 확인' 이모지가 한 번이라도 찍힌 건(토플 문의 시각 있음 · 상태 토플 …)은
+  //   시트 처리 방식 · 원격 · 현장 기록과 관계없이 '토스플레이스 확인'. 뒤에 처리완료로 바뀌어도 그대로 남습니다.
+  RECS.forEach(r => { const sl = r.slack; if (sl && (sl.tossAt || /^토플/.test(sl.status || ''))) { if (r.method !== '토스플레이스 확인') r.methodRaw = r.method; r.method = '토스플레이스 확인'; r.methodGuess = false; r.methodByToss = true; } });
   RECS.forEach(r => { if (r.caseDone && r.status !== '완료') { r.statusRaw = r.status; r.status = '완료'; r.statusByCase = true; } });
   // 처리 방식 표시 이름(2026-11-11): 원격지원 · 현장지원(방문점검 · 현장 지원) · CS(고객센터에서 바로 해결) · 토스플레이스 확인 · 처리 중(원격 · 현장 기록 없이 진행 중)
   RECS.forEach(r => { const m = { '방문점검': '현장지원', '현장 지원': '현장지원', 'CS안내': 'CS', '미분류': r.status === '완료' ? 'CS' : '처리 중' }[r.method]; if (m) r.method = m; });
@@ -1358,11 +1361,11 @@ function demoRaw() {
     return { store: s.name, kind: '신규 설치', installed: s.installed, callDate: done ? ymd(call) : '', status: !done ? '예정' : rnd() < .2 ? '재연락 필요' : '완료', target: pick(['점주', '매니저']),
       answers: HC_DEFAULT.map(() => { if (!done) return { result: '', answer: '' }; const r = wpick(['확인', '문의·이슈', '해당 없음'], [8, 2, 1]); return { result: r, answer: pick(ANS[r]) }; }) }; });
   // 해피콜 통화 기록(교육 및 기타, 가상): 콜라비 [컴포즈OB] → 해피콜(교육 및 기타)로 건 통화
-  const happyLog = Array.from({ length: 16 }, (_, i) => { const at = addMin(NOW, -ri(60, 60 * 24 * 40)), s = pick(stores), r = wpick(['통화 완료', '부재', '재연락 필요'], [7, 2, 1]), edu = rnd() < .7;
+  const happyLog = Array.from({ length: 16 }, (_, i) => { const at = addMin(NOW, -ri(60, 60 * 24 * 40)), s = pick(stores), r = wpick(['안내 완료', '재통화', '2차 부재'], [7, 2, 1]), edu = rnd() < .7;
     const topic = edu ? pick(['키오스크 품절 처리 교육', '포스 마감 정산 방법 안내', '쿠폰 적용 방법 안내']) : pick(['신메뉴 등록 확인 요청', '영수증 하단 문구 변경 안내']);
-    return { type: '교육 및 기타', at: dt(at), agent: pick(['상담1', '상담2']), store: s.name, requester: edu ? pick(['매장', '본사']) : '본사', contact: topic, result: r, followup: r !== '통화 완료',
-      question: r === '통화 완료' ? pick(['품절 처리를 한 번에 하는 방법이 있는지 문의', '마감 후 정산 금액이 안 맞는다고 하심', '특별히 문의 없음']) : '',
-      answer: r === '통화 완료' ? pick(['화면 따라 하기로 안내 완료, 매뉴얼 발송 예정', '정산 화면 위치 안내, 이해하심', '요청 사항 전달 완료']) : '부재 문자 발송',
+    return { type: '교육 및 기타', at: dt(at), agent: pick(['상담1', '상담2']), store: s.name, requester: edu ? pick(['매장', '본사']) : '본사', contact: topic, result: r, followup: r === '재통화',
+      question: r === '안내 완료' ? pick(['품절 처리를 한 번에 하는 방법이 있는지 문의', '마감 후 정산 금액이 안 맞는다고 하심', '특별히 문의 없음']) : '',
+      answer: r === '안내 완료' ? pick(['화면 따라 하기로 안내 완료, 매뉴얼 발송 예정', '정산 화면 위치 안내, 이해하심', '요청 사항 전달 완료']) : '부재 문자 발송',
       callNo: `DEMO-${1000 + i}`, registeredAt: dt(addMin(at, 2)) }; });
   const edits = [{ k: 'e', branch: '가람점', date: '2025-03-02', type: '설치', item: 'kiosk', name: '키오스크', qty: 2, model: '' }, { k: 'o', branch: '라온점', type: 'kiosk', qty: 3, model: 'T6D' }];
   // 상담 내역에 아직 옮겨지지 않은 슬랙 글(가상)
@@ -2118,15 +2121,17 @@ function viewHappyLog(t) {
     { key: 'req', label: '요청처', get: x => x.requester },
     share ? null : { key: 'agent', label: '상담원', get: x => x.agent }
   ].filter(Boolean);
-  const rows = applyFilter(fk, base, { store: x => x.store, text: x => [x.requester, x.contact, x.result, x.question, x.answer, x.callNo].join(' '), tags });
+  // 통화 기록 표는 시간순(오래된 통화부터, 시트와 같은 순서)
+  const rows = applyFilter(fk, base, { store: x => x.store, text: x => [x.requester, x.contact, x.result, x.question, x.answer, x.callNo].join(' '), tags }).slice().sort((a, b) => (a.t || 0) - (b.t || 0));
   const p = paged(fk, rows, 30), byRes = countBy(rows, x => x.result || '결과 없음'), byReq = countBy(rows, x => x.requester || '미기재');
-  let h = `<div class="ov-tiles" style="--n:4">${tile(`${esc(t.name)} 통화`, num(base.length), '건', '전체 기간', { grand: true })}${tile('이번 달', num(base.filter(x => x.t && x.t >= ms).length), '건', `${TODAY.getMonth() + 1}월`)}${tile('후속 필요', num(base.filter(x => x.followup).length), '건', '부재 · 재연락 등', { c: 'var(--orange)' })}${tile('매장', num(new Set(base.map(x => skey(x.store))).size), '곳', '통화한 매장')}</div>`;
+  let h = `<div class="ov-tiles" style="--n:4">${tile(`${esc(t.name)} 통화`, num(base.length), '건', '전체 기간', { grand: true })}${tile('이번 달', num(base.filter(x => x.t && x.t >= ms).length), '건', `${TODAY.getMonth() + 1}월`)}${tile('후속 필요', num(base.filter(x => x.followup).length), '건', '재통화(2차 부재는 종결)', { c: 'var(--orange)' })}${tile('매장', num(new Set(base.map(x => skey(x.store))).size), '곳', '통화한 매장')}</div>`;
   if (base.length) h += `<div class="grid2 even grid-gap"><div class="card" style="margin:0"><div class="card-head"><h3>결과별</h3><span class="hint">검색 · 태그 조건 기준</span></div>${hbars(byRes, byRes.length ? byRes[0][1] : 0)}</div>
     <div class="card" style="margin:0"><div class="card-head"><h3>요청처별</h3></div>${hbars(byReq, byReq.length ? byReq[0][1] : 0)}</div></div>`;
-  const cols = share ? 4 : 6;
-  h += `<div class="card"><div class="card-head"><h3>${esc(t.name)} 통화 기록 ${src('cs')}</h3><span class="hint">최신순${share ? '' : ' · 줄을 누르면 문의 · 답변이 펼쳐짐'}</span></div>${filterBar(fk, base, tags, rows.length)}
-    <div class="tbl-scroll"><table class="mcard"><thead><tr><th>일시</th><th>매장</th><th>요청처</th>${share ? '' : '<th style="width:30%">연락 내용</th>'}<th>결과</th>${share ? '' : '<th>상담원</th>'}</tr></thead><tbody>
-    ${p.rows.map(x => { const cells = `<td style="white-space:nowrap">${esc(String(x.at || '').slice(0, 16) || '—')}</td><td><b>${esc(x.store)}</b>${share ? '' : caret(x.key)}</td><td>${esc(x.requester || '—')}</td>${share ? '' : `<td>${esc(x.contact || '—')}</td>`}<td>${hcResBadge(x.result, x.followup)}</td>${share ? '' : `<td class="muted">${esc(x.agent || '—')}</td>`}`;
+  // 표 칸(내부용 · 공유용 같음): 일시 · 매장 · 요청처 · 연락 내용 · 결과. 내부용은 줄을 누르면 상담원 · 문의 · 답변 · 상담번호
+  const cols = 5;
+  h += `<div class="card"><div class="card-head"><h3>${esc(t.name)} 통화 기록 ${src('cs')}</h3><span class="hint">시간순(오래된 통화부터)${share ? '' : ' · 줄을 누르면 문의 · 답변이 펼쳐짐'}</span></div>${filterBar(fk, base, tags, rows.length)}
+    <div class="tbl-scroll"><table class="mcard"><thead><tr><th>일시</th><th>매장</th><th>요청처</th><th style="width:34%">연락 내용</th><th>결과</th></tr></thead><tbody>
+    ${p.rows.map(x => { const cells = `<td style="white-space:nowrap">${esc(String(x.at || '').slice(0, 16) || '—')}</td><td><b>${esc(x.store)}</b>${share ? '' : caret(x.key)}</td><td>${esc(x.requester || '—')}</td><td>${esc(x.contact || '—')}</td><td>${hcResBadge(x.result, x.followup)}</td>`;
       return share ? `<tr>${cells}</tr>` : xrow(x.key, cells, cols, () => `<div class="vp" style="--n:2">${infoBox([['콜라비 상담번호', x.callNo], ['상담원', x.agent], ['요청처', x.requester], ['등록 일시', String(x.registeredAt || '').slice(0, 16)]])}${panel('asis', '?', '문의 내용', x.question)}${panel('act', '✓', '답변 내용', x.answer)}</div>`); }).join('')
       || `<tr><td colspan="${cols}">${empty(base.length ? '조건에 맞는 통화 기록이 없습니다.' : `아직 ${esc(t.name)} 통화 기록이 없습니다. 콜라비에서 [컴포즈OB] → 해피콜(${esc(t.name)})로 통화를 마치면 시트 탭에 쌓이고 여기에 보여요.`)}</td></tr>`}
     </tbody></table></div>${pager(fk, p)}</div>`;
