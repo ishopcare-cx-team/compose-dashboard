@@ -279,6 +279,7 @@
   .loading{padding:80px 20px; text-align:center; color:var(--gray); font-size:15px}
   .internal-mark{font-size:10.5px; font-weight:800; color:var(--red); border:1px solid var(--red); border-radius:5px; padding:0 5px; margin-left:4px}
   body.share .internal{display:none !important}
+  .sub-tabs[hidden], .view-tab[hidden]{display:none !important}
   .share-only{display:none} body.share .share-only{display:flex}
 
   /* 메뉴: 상담 내역 아래 하위 항목 · 메뉴 안 닫기 버튼 */
@@ -537,7 +538,16 @@
       <button class="view-tab sub" data-v="voc">VOC</button>
       <button class="view-tab sub internal" data-v="cands">슬랙 후보</button>
     </div>
-    <button class="view-tab" data-v="happy">해피콜</button>
+    <button class="view-tab parent" data-v="happy">해피콜</button>
+    <div class="sub-tabs" id="hcSubTabs">
+      <button class="view-tab sub" data-v="happy">전체</button>
+      <button class="view-tab sub" data-v="hc_new">신규 설치<span class="src" data-hcn="hc_new"></span></button>
+      <button class="view-tab sub" data-v="hc_edu">교육 및 기타<span class="src" data-hcn="hc_edu"></span></button>
+      <!-- 아래 3종: 내부용은 운영 전이면 '추후'로 보이고, 공유용은 통화 기록이 쌓인 뒤에만 보입니다. -->
+      <button class="view-tab sub" data-v="hc_as">A/S 사후<span class="src" data-hcn="hc_as"></span></button>
+      <button class="view-tab sub" data-v="hc_regular">정기 점검<span class="src" data-hcn="hc_regular"></span></button>
+      <button class="view-tab sub" data-v="hc_promo">프로모션·신메뉴<span class="src" data-hcn="hc_promo"></span></button>
+    </div>
     <button class="view-tab" data-v="equip">장비 조회</button>
     <button class="view-tab" data-v="stores">지점별</button>
   </div>
@@ -763,6 +773,11 @@ const HC_DEFAULT = [
   ['사용 교육 이해도', '', ['설치 때 안내받으신 사용법은 이해하기 쉬우셨나요?', '직접 사용해 보니 추가 설명이 필요한 기능이 있으신가요?']],
   ['추가 불편 확인', '', ['그 외에 장비를 사용하시면서 불편했거나 도움이 필요한 부분이 있으신가요?']]
 ].map(([title, detail, lines], i) => ({ number: '①②③④⑤'[i], title, detail, lines }));
+// 해피콜 유형: 서버가 시트에 있는 탭만 골라 happyTypes로 보냅니다([{ key, name, layout }]).
+// layout 'survey' = 해피콜 탭(매장 1곳당 1행 · 질문별 결과), 'log' = 콜라비 [컴포즈OB] 통화 1건당 1행.
+const HC_TYPES_DEFAULT = [{ key: 'new', name: '신규 설치', layout: 'survey' }, { key: 'edu', name: '교육 및 기타', layout: 'log' }];
+let HC_TYPES = HC_TYPES_DEFAULT, HCLOG = [];
+const hcTypeOf = name => HC_TYPES.find(t => t.name === name);
 // 실시간 인입의 인입 채널: 슬랙 '출처'(법인폰 · 워크플로 등) → 상담 인입 경로 → 고객센터 순으로 정합니다.
 // 현장에서 받은 건도 원격팀 인입으로 셉니다(2026-11-06 결정).
 const INFLOWS = ['고객센터', '원격팀', 'OS'];
@@ -863,7 +878,13 @@ function buildModel(raw) {
   HCQ = raw.happyQuestions && raw.happyQuestions.length ? raw.happyQuestions : HC_DEFAULT;
   // 예전 데이터(결과 글자만 있는 배열)도 { result, answer }로 맞춥니다.
   OB_CALLS = (raw.obCalls || []).map(o => ({ at: P(o.at), store: o.store || '', skey: skey(o.store || ''), kind: o.kind || '', result: o.result || '' })).filter(o => o.at && fromOk(o.at) && !STORE_EXCLUDE.test(o.store));
-  HAPPY = (raw.happy || []).filter(h => !STORE_EXCLUDE.test(h.store || '')).map((h, n) => Object.assign({}, h, { key: `hc:${n}`, answers: HCQ.map((q, i) => { const a = (h.answers || [])[i]; return a && typeof a === 'object' ? a : { result: a || '', answer: '' }; }) }));
+  // 예전 서버(유형 목록 없음)는 신규 설치 하나로 봅니다.
+  HC_TYPES = Array.isArray(raw.happyTypes) && raw.happyTypes.length && typeof raw.happyTypes[0] === 'object' ? raw.happyTypes : HC_TYPES_DEFAULT.filter(t => t.layout === 'survey' || raw.happyLog);
+  const surveyName = (HC_TYPES.find(t => t.layout === 'survey') || HC_TYPES_DEFAULT[0]).name;
+  // 통화 기록(교육 및 기타 등): 통화 1건당 1행. 최신순.
+  HCLOG = (raw.happyLog || []).filter(h => !STORE_EXCLUDE.test(h.store || '')).map((h, n) => Object.assign({}, h, { key: `hl:${n}`, t: P(h.at) }))
+    .sort((a, b) => (b.t || 0) - (a.t || 0));
+  HAPPY = (raw.happy || []).filter(h => !STORE_EXCLUDE.test(h.store || '')).map((h, n) => Object.assign({}, h, { type: surveyName, key: `hc:${n}`, answers: HCQ.map((q, i) => { const a = (h.answers || [])[i]; return a && typeof a === 'object' ? a : { result: a || '', answer: '' }; }) }));
 
   // 1) CS 상담 내역 = 허브
   const TESTS = (raw.consults || []).filter(c => isTestText(c.question || '') || /^테스트/.test(String(c.question || '').trim())).map(c => ({ k: skey(c.store), at: P(c.at) })).filter(t => t.k && t.at);
@@ -1329,6 +1350,13 @@ function demoRaw() {
     const ANS = { '확인': ['네, 문제없이 잘 쓰고 있어요.', '정상적으로 잘 됩니다.', '괜찮았어요.'], '문의·이슈': ['가끔 주문서가 늦게 나와요. 확인 부탁드려요.', '간편결제 취소 방법을 다시 알려 주세요.', '키오스크 품절 처리 방법이 헷갈려요.'], '해당 없음': ['아직 사용해 보지 않았어요.'] };
     return { store: s.name, kind: '신규 설치', installed: s.installed, callDate: done ? ymd(call) : '', status: !done ? '예정' : rnd() < .2 ? '재연락 필요' : '완료', target: pick(['점주', '매니저']),
       answers: HC_DEFAULT.map(() => { if (!done) return { result: '', answer: '' }; const r = wpick(['확인', '문의·이슈', '해당 없음'], [8, 2, 1]); return { result: r, answer: pick(ANS[r]) }; }) }; });
+  // 해피콜 통화 기록(교육 및 기타, 가상): 콜라비 [컴포즈OB] → 해피콜(교육 및 기타)로 건 통화
+  const happyLog = Array.from({ length: 16 }, (_, i) => { const at = addMin(NOW, -ri(60, 60 * 24 * 40)), s = pick(stores), r = wpick(['통화 완료', '부재', '재연락 필요'], [7, 2, 1]), edu = rnd() < .7;
+    const topic = edu ? pick(['키오스크 품절 처리 교육', '포스 마감 정산 방법 안내', '쿠폰 적용 방법 안내']) : pick(['신메뉴 등록 확인 요청', '영수증 하단 문구 변경 안내']);
+    return { type: '교육 및 기타', at: dt(at), agent: pick(['상담1', '상담2']), store: s.name, requester: edu ? pick(['매장', '본사']) : '본사', contact: topic, result: r, followup: r !== '통화 완료',
+      question: r === '통화 완료' ? pick(['품절 처리를 한 번에 하는 방법이 있는지 문의', '마감 후 정산 금액이 안 맞는다고 하심', '특별히 문의 없음']) : '',
+      answer: r === '통화 완료' ? pick(['화면 따라 하기로 안내 완료, 매뉴얼 발송 예정', '정산 화면 위치 안내, 이해하심', '요청 사항 전달 완료']) : '부재 문자 발송',
+      callNo: `DEMO-${1000 + i}`, registeredAt: dt(addMin(at, 2)) }; });
   const edits = [{ k: 'e', branch: '가람점', date: '2025-03-02', type: '설치', item: 'kiosk', name: '키오스크', qty: 2, model: '' }, { k: 'o', branch: '라온점', type: 'kiosk', qty: 3, model: 'T6D' }];
   // 상담 내역에 아직 옮겨지지 않은 슬랙 글(가상)
   [[0, 35, '프린터', '주방 프린터 출력이 늦게 나옵니다.', '원격지원', '원격2', '법인폰'], [1, 90, '키오스크', '키오스크 영수증 용지 교체 방법 문의', '', '', '협업채널'], [2, 15, '앱오더', '앱 주문 알림이 두 번 울립니다.', '확인중', '', '법인폰']].forEach(([i, ago, ch, q, st, own, from]) => {
@@ -1343,7 +1371,7 @@ function demoRaw() {
     { key: 'C|1', channel: '협업채널', date: '2026-11-02', time: '09:40', store: '', kind: 'notice', how: '규칙', title: '컴포즈앱 11/4 새벽 점검 공지', summary: '11/4(화) 02:00~04:00 컴포즈앱 점검. 점검 중 앱 주문 미수신.', impact: '', progress: '진행 중', link: '', state: '후보', as: '' },
     { key: 'C|2', channel: '협업채널', date: '2026-11-01', time: '18:05', store: '컴포즈커피 가람점, 컴포즈커피 새솔점', kind: 'issue', how: '규칙', title: '앱 주문 포스 미수신 여러 매장', summary: '저녁 피크에 앱 주문이 포스에 안 들어온다는 문의가 여러 매장에서 들어옴.', impact: '영업 불가', progress: '완료', link: '', state: '후보', as: '' },
     { key: 'C|3', channel: '협업채널', date: '2026-10-31', time: '13:30', store: '컴포즈커피 라온점', kind: 'voc', how: 'AI', title: '키오스크 품절 일괄 처리 요청', summary: '점주가 품절 메뉴를 한 번에 처리하는 기능을 요청.', impact: '', progress: '진행 중', link: '', state: '후보', as: '' }];
-  return { now: dt(NOW), demo: true, toss, slackCandidates, slackStat: { total: slackRows + 6, matched: slackRows - onlyRows, only: onlyRows }, consults, issues, voc, happy, stores, checkItems: ITEMS, remote: { as, visits, edits, updatedAt: { as: '2026-11-02 07:00', visits: '2026-11-02 07:01' } }, errors: [] };
+  return { now: dt(NOW), demo: true, toss, slackCandidates, slackStat: { total: slackRows + 6, matched: slackRows - onlyRows, only: onlyRows }, consults, issues, voc, happy, happyLog, happyTypes: HC_TYPES_DEFAULT, stores, checkItems: ITEMS, remote: { as, visits, edits, updatedAt: { as: '2026-11-02 07:00', visits: '2026-11-02 07:01' } }, errors: [] };
 }
 
 /* ================================================================ 상태 */
@@ -1424,7 +1452,9 @@ const TITLES = {
   overview: ['전체현황', 'CX 상담 + 원격 처리 통합 현황'], records: ['인입 현황', '고객센터 · 원격팀 · OS로 들어온 컴포즈 문의 전체'],
   process: ['처리 내역', '원격팀 처리 구분 내역'],
   issues: ['통합 이슈', '매장별 설정 오류 · 전체 오류'], voc: ['VOC', '매장 기능 개선 요청(현상 · 요청 · 조치)'],
-  cands: ['슬랙 후보', '협업채널 · 원격 긴급 글에서 찾은 이슈 · VOC · 공지 후보(확인 후 등록)'], happy: ['해피콜', '신규 설치 매장 사후 확인'],
+  cands: ['슬랙 후보', '협업채널 · 원격 긴급 글에서 찾은 이슈 · VOC · 공지 후보(확인 후 등록)'], happy: ['해피콜', '유형별 해피콜 전체 현황'],
+  hc_new: ['신규 설치 해피콜', '설치 다음 영업일 · 결제 · 출력 · 기사 응대 · 교육 이해도'], hc_edu: ['교육 및 기타 해피콜', '콜라비 [컴포즈OB] 통화 기록 · 기능 교육 · 매장 요청 사항'],
+  hc_as: ['A/S 사후 해피콜', '콜라비 [컴포즈OB] 통화 기록'], hc_regular: ['정기 점검 해피콜', '콜라비 [컴포즈OB] 통화 기록'], hc_promo: ['프로모션·신메뉴 해피콜', '콜라비 [컴포즈OB] 통화 기록'],
   equip: ['장비 조회', '원격팀 장비 이력 + CS 사전체크'], stores: ['지점별', '매장 한 곳의 상담 · 원격 · 장비 · 설정'],  report: ['월간 보고서', '토스플레이스 보고용'],
   principles: ['응대 원칙', '상담 가이드 · CX 응대 기준'], incident: ['장애 대응', '상담 가이드 · 알림 문구별 조치'],
   happycall: ['해피콜 스크립트', '상담 가이드 · 유형별 스크립트와 부재 문자'], posmanual: ['포스 매뉴얼', '컴포즈 포스사용 매뉴얼(v6)'], storeops: ['지점 운영 현황', '지점별 운영시간 · 연락처 · 보유 장비 · 토플 초기 설정(노션 각 지점별 운영)'],
@@ -1433,7 +1463,13 @@ const TITLES = {
 };
 // 공유용 보기에서 숨기는 화면(메뉴의 '내부용' 묶음)
 const GUIDE_VIEWS = ['principles', 'incident', 'happycall', 'posmanual', 'storeops'];
-const INTERNAL_VIEWS = ['report', 'updates', 'cands', 'precheck'].concat(GUIDE_VIEWS);
+// 해피콜 유형 메뉴(운영 › 해피콜 아래). 화면 이름 → 유형 이름.
+const HC_VIEWS = { hc_new: '신규 설치', hc_edu: '교육 및 기타', hc_as: 'A/S 사후', hc_regular: '정기 점검', hc_promo: '프로모션·신메뉴' };
+const isHappyView = v => v === 'happy' || !!HC_VIEWS[v];
+// 유형 메뉴를 공유용에도 보일지(2026-11-11: 공유용은 지금 진행 중인(기록이 있는) 유형만 보임). false로 바꾸면 공유용은 예전처럼 신규 설치 화면 하나만.
+// 공유용에서도 해피콜 스크립트(상담 가이드)는 보이지 않고, 통화 기록은 서버가 일시 · 유형 · 매장 · 요청처 · 결과만 보냅니다.
+const HC_TYPE_TABS_IN_SHARE = true;
+const INTERNAL_VIEWS = ['report', 'updates', 'cands', 'precheck'].concat(GUIDE_VIEWS, HC_TYPE_TABS_IN_SHARE ? [] : Object.keys(HC_VIEWS));
 let hcType = 'new';
 
 /* ================================================================ 공통 조각 */
@@ -1921,7 +1957,7 @@ const hcChips = hc => HCQ.map((q, i) => { const r = (hc.answers[i] || {}).result
 function storeDetail(s) {
   const rs = RECS.filter(r => r.skey === s.key), recent = rs.filter(r => r.at >= addDay(TODAY, -30)).length;
   const iss = ISSUES.filter(i => issueHits(i, s.key)), openIss = iss.filter(i => !/^완료/.test(i.status));
-  const voc = VOC.filter(v => skey(v.store) === s.key), hc = HAPPY.find(x => skey(x.store) === s.key), stat = (l, v, sub) => `<div class="store-stat"><div class="label">${l}</div><b>${v}</b><small>${sub}</small></div>`;
+  const voc = VOC.filter(v => skey(v.store) === s.key), hc = HAPPY.find(x => skey(x.store) === s.key), hl = HCLOG.filter(x => skey(x.store) === s.key).slice(0, 3), stat = (l, v, sub) => `<div class="store-stat"><div class="label">${l}</div><b>${v}</b><small>${sub}</small></div>`;
   const evs = storeTimeline(s);
   let h = `<div style="padding:10px 4px"><div class="hint" style="margin-bottom:12px">${s.no ? `${esc(s.no)}호점 · ` : ''}${s.code ? `OKPOS 매장코드 ${esc(s.code)} · ` : ''}설치 ${esc(s.installed || '—')}${s.kind ? ' · ' + esc(s.kind) : ''}${recent >= 3 ? ' · <span class="badge b-red">반복 문의 매장</span>' : ''}</div>
     <div class="store-stats">${stat('전체 접수', num(rs.length) + '건', `CS ${rs.filter(r => r.src === 'cs').length} · 원격 ${rs.filter(r => r.src === 'oc').length}`)}${stat('최근 30일', num(recent) + '건', recent >= 3 ? '반복 문의' : '3회부터 반복')}${stat('원격 처리', num(rs.filter(r => r.remote).length) + '건', '원격팀 기록')}${stat('현장 방문', num(rs.filter(r => r.visit).length) + '건', '원격팀 기록')}${stat('미해결 이슈', num(openIss.length) + '건', `전체 ${iss.length}건`)}${stat('개선 요청', num(voc.length) + '건', '매장 VOC')}</div>
@@ -1929,7 +1965,7 @@ function storeDetail(s) {
     <div class="card" style="margin:0"><div class="card-head"><h3>✅ 장비 설정 체크 ${src('cs')}</h3><span class="hint">매장 사전체크</span></div>${checkBox(s)}</div></div>`;
   h += `<div class="grid2"><div class="card" style="margin:0"><div class="card-head"><h3>처리 타임라인 ${src('both')}</h3><span class="hint">CX 상담 · 원격 · 현장을 시간순으로</span></div>
     ${evs.length ? `<div class="tl">${evs.slice(0, 30).map(e => `<div class="tl-i ${e.cls}"><div class="w">${esc(e.w)}</div><div class="x">${esc(e.x)}</div></div>`).join('')}</div>` : empty('기록이 없습니다.')}</div>
-    <div><div class="card"><div class="card-head"><h3>해피콜 ${src('cs')}</h3></div>${hc ? `<div style="margin-bottom:8px">${statusBadge(hc.status)} <span class="hint">${esc(hc.callDate || '예정')}</span></div>${hcChips(hc)}` : '<div class="muted">해피콜 기록이 없습니다.</div>'}</div>
+    <div><div class="card"><div class="card-head"><h3>해피콜 ${src('cs')}</h3></div>${hc ? `<div style="margin-bottom:8px">${statusBadge(hc.status)} <span class="hint">${esc(hc.callDate || '예정')}</span></div>${hcChips(hc)}` : hl.length ? '' : '<div class="muted">해피콜 기록이 없습니다.</div>'}${hl.length ? `<div class="side-list" style="margin-top:8px">${hl.map(x => `<div><span class="hint">${esc(String(x.at || '').slice(0, 10))}</span> <span class="tag">${esc(x.type)}</span>${esc(x.contact || x.requester || '')} ${hcResBadge(x.result, x.followup)}</div>`).join('')}</div>` : ''}</div>
     <div class="card" style="margin:0"><div class="card-head"><h3>통합 이슈 · 개선 요청 ${src('cs')}</h3></div>${iss.length || voc.length ? `<div class="side-list">${iss.slice(0, 6).map(i => `<div><span class="hint">${esc(i.date)}</span> ${kindTag(i.kind)} ${esc(i.content)} ${statusBadge(i.status)}</div>`).join('')}${voc.map(v => `<div><span class="hint">${esc(v.id)}</span> <span class="tag">${esc(v.kind)}</span>${esc(v.title)} <span class="badge b-gray">${esc(v.status)}</span></div>`).join('')}</div>` : '<div class="muted">등록된 이슈가 없습니다.</div>'}</div></div></div></div>`;
   return h;
 }
@@ -1984,26 +2020,101 @@ function hcDetail(x) {
       <div class="hq-qa"><div><div class="hq-tag">질문</div><div class="hq-q">${(q.lines || []).map(esc).join('<br>') || '—'}</div></div><div><div class="hq-tag">💬 매장 답변</div><div class="hq-a">${a.answer ? esc(a.answer) : '<span class="muted">기록 없음</span>'}</div></div></div></section>`;
   }).join('')}</div>`;
 }
+// 해피콜 화면: '전체'(view = happy)는 유형별 현황, 유형 메뉴(hc_*)는 그 유형만.
+// 신규 설치(survey)는 매장 카드 + 질문별 결과, 통화 기록 유형(log · 교육 및 기타 등)은 통화 1건당 한 줄입니다.
+const hcViewOf = name => Object.keys(HC_VIEWS).find(v => HC_VIEWS[v] === name);
+const hcOpenCount = t => t.layout === 'log' ? HCLOG.filter(x => x.type === t.name && x.followup).length : HAPPY.filter(x => x.type === t.name && x.status !== '완료').length;
+const hcResBadge = (r, follow) => `<span class="badge ${!r ? 'b-gray' : follow ? 'b-open' : 'b-done'}">${esc(r || '결과 없음')}</span>`;
+const hcMonthStart = () => new Date(TODAY.getFullYear(), TODAY.getMonth(), 1);
+// 유형 건수(신규 설치 = 매장 수, 통화 기록 = 통화 수)
+const hcCount = name => { const t = hcTypeOf(name); return !t ? 0 : t.layout === 'log' ? HCLOG.filter(x => x.type === name).length : HAPPY.filter(x => x.type === name).length; };
+// 메뉴 · 현황 표에 보일 유형: 내부용은 운영 전(탭 없음) 유형까지 5종 모두, 공유용은 기록이 있는(진행한) 유형만.
+const hcVisible = name => mode !== 'share' || (HC_TYPE_TABS_IN_SHARE && hcCount(name) > 0);
 function viewHappy() {
+  const type = HC_VIEWS[view] || '', t = type ? hcTypeOf(type) : null;
+  // 공유용(유형 메뉴를 열기 전): 예전처럼 신규 설치 해피콜 화면 하나만
+  if (!type && mode === 'share' && !HC_TYPE_TABS_IN_SHARE) return viewHappySurvey(HC_TYPES.find(x => x.layout === 'survey') || HC_TYPES_DEFAULT[0]);
+  if (!type) return viewHappyAll();
+  if (!t) return viewHappyLater(type);
+  return t.layout === 'log' ? viewHappyLog(t) : viewHappySurvey(t);
+}
+// 운영 전 유형: 내부용은 시작 방법과 가이드 스크립트 바로가기, 공유용은 '추후 운영 예정' 안내만
+function viewHappyLater(type) {
+  const key = (hcViewOf(type) || '').replace(/^hc_/, '');
+  if (mode === 'share') return `<div class="card"><div class="card-head"><h3>${esc(type)} 해피콜</h3><span class="tag">추후 운영</span></div><p>추후 운영 예정인 유형이에요. 운영을 시작해 통화 기록이 쌓이면 이 화면에 결과별 · 요청처별 현황과 통화 기록이 나와요.</p></div>`;
+  return `<div class="card"><div class="card-head"><h3>${esc(type)} 해피콜</h3><span class="tag">추후 운영</span></div>
+    <p>아직 운영 전인 유형이에요. 시작하면 아래 순서로 준비하고, 통화 기록이 쌓이면 이 화면에 현황이 나와요.</p>
+    <ol style="margin:8px 0 14px;padding-left:20px;line-height:1.8"><li>시트에 <b>해피콜(${esc(type)})</b> 탭 만들기 (교육 및 기타 탭과 같은 열 구성)</li><li>콜라비 [컴포즈OB] 팝업 · 상담 유형에 <b>해피콜(${esc(type)})</b> 추가</li><li>탭 이름이 다르면 Code.gs <code>HAPPY_CALL.TYPES</code>의 sheet 이름 맞추기</li></ol>
+    ${key && document.querySelector(`#hcScripts [data-hct="${key}"]`) ? `<button class="btn sm" data-hcscript="${esc(key)}">${esc(type)} 스크립트 보기 →</button>` : ''}</div>`;
+}
+function viewHappyAll() {
+  const ms = hcMonthStart(), share = mode === 'share';
+  // 운영 중 유형(서버가 보낸 것) + 내부용은 운영 전 유형도 목록에(건수 없이 '추후 운영')
+  const names = Object.values(HC_VIEWS).filter(hcVisible).concat(HC_TYPES.map(t => t.name).filter(n => !hcViewOf(n) && hcVisible(n)));
+  const rows = names.map(name => {
+    const t = hcTypeOf(name);
+    if (!t) return { t: { name, layout: 'later' }, n: 0, month: 0, open: 0, last: '' };
+    if (t.layout === 'log') { const l = HCLOG.filter(x => x.type === t.name); return { t, n: l.length, month: l.filter(x => x.t && x.t >= ms).length, open: hcOpenCount(t), last: l[0] ? String(l[0].at || '').slice(0, 16) : '' }; }
+    const l = HAPPY.filter(x => x.type === t.name), calls = l.map(x => x.callDate).filter(Boolean).sort();
+    return { t, n: l.length, month: l.filter(x => P(x.callDate) && P(x.callDate) >= ms).length, open: hcOpenCount(t), last: calls[calls.length - 1] || '' };
+  });
+  const sum = k => rows.reduce((a, r) => a + r[k], 0), live = rows.filter(r => r.t.layout !== 'later').length, later = rows.length - live;
+  let h = `<div class="ov-tiles" style="--n:4">${tile('해피콜 전체', num(sum('n')), '건', '신규 설치는 매장 수 · 그 밖은 통화 수', { grand: true })}${tile('이번 달', num(sum('month')), '건', `${TODAY.getMonth() + 1}월 통화`)}${tile('후속 필요', num(sum('open')), '건', '끝나지 않은 건 · 부재 · 재연락', { c: 'var(--orange)' })}${tile('운영 중 유형', num(live), '종', later ? `추후 운영 ${later}종` : '')}</div>`;
+  h += `<div class="card"><div class="card-head"><h3>유형별 현황</h3><span class="hint">유형을 누르면 그 유형 화면으로</span></div>
+    <div class="tbl-scroll"><table class="nowrap"><thead><tr><th>유형</th><th>기록 방식</th><th class="num">건수</th><th class="num">이번 달</th><th class="num">후속 필요</th><th>최근 통화</th></tr></thead><tbody>${rows.map(r => {
+      const v = hcViewOf(r.t.name), go = v ? `<button class="linkish" style="border:none;background:none;padding:0;font:inherit;font-weight:700;cursor:pointer" data-hcgo="${v}">${esc(r.t.name)}</button>` : `<b>${esc(r.t.name)}</b>`;
+      if (r.t.layout === 'later') return `<tr class="muted"><td>${go} <span class="tag">추후 운영</span></td><td>시트 탭 추가 후 시작</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td>—</td></tr>`;
+      return `<tr><td>${go}</td><td class="muted">${r.t.layout === 'log' ? '통화 기록(콜라비 컴포즈OB)' : '매장별 질문 결과(해피콜 탭)'}</td><td class="num">${num(r.n)}</td><td class="num">${num(r.month)}</td><td class="num"${r.open ? ' style="color:var(--orange);font-weight:700"' : ''}>${num(r.open)}</td><td>${esc(r.last || '—')}</td></tr>`; }).join('')}</tbody></table></div></div>`;
+  const recent = HCLOG.filter(x => hcVisible(x.type)).slice(0, 10);
+  if (recent.length) h += `<div class="card"><div class="card-head"><h3>최근 통화 기록</h3><span class="hint">콜라비 [컴포즈OB] 해피콜 · 최신 10건</span></div>
+    <div class="tbl-scroll"><table class="nowrap"><thead><tr><th>일시</th><th>유형</th><th>매장</th><th>요청처</th><th>결과</th></tr></thead><tbody>${recent.map(x => `<tr><td>${esc(String(x.at || '').slice(0, 16) || '—')}</td><td>${esc(x.type)}</td><td><b>${esc(x.store)}</b></td><td>${esc(x.requester || '—')}</td><td>${hcResBadge(x.result, x.followup)}</td></tr>`).join('')}</tbody></table></div></div>`;
+  return h;
+}
+// 신규 설치: 매장 카드를 누르면 질문 스크립트와 매장 답변이 질문별로 펼쳐집니다.
+function viewHappySurvey(t) {
+  const fk = view, base = HAPPY.filter(x => x.type === t.name);
   const tags = [
     { key: 'status', label: '진행 상태', get: x => x.status, order: ['완료', '재연락 필요', '진행 중', '예정'] },
     { key: 'kind', label: '설치 구분', get: x => x.kind },
     { key: 'result', label: '확인 결과', get: x => hcIssue(x) ? '문의·이슈 있음' : hcRecorded(x) ? '이상 없음' : '기록 없음' },
     { key: 'q', label: '문의·이슈 항목', get: x => HCQ.filter((q, i) => (x.answers[i] || {}).result === '문의·이슈').map(q => `${q.number} ${q.title}`) }
   ];
-  const rows = applyFilter('happy', HAPPY, { store: x => x.store, text: x => [x.kind, x.target, x.answers.map(a => a.answer).join(' ')].join(' '), tags })
+  const rows = applyFilter(fk, base, { store: x => x.store, text: x => [x.kind, x.target, x.answers.map(a => a.answer).join(' ')].join(' '), tags })
     .sort((a, b) => String(b.callDate || b.installed).localeCompare(String(a.callDate || a.installed)));
-  const done = HAPPY.filter(h => h.status !== '예정'), rec = rows.filter(hcRecorded), p = paged('happy', rows, 20);
-  let h = `<div class="ov-tiles" style="--n:4">${tile('해피콜 대상', num(HAPPY.length), '곳', '해피콜 탭', { grand: true })}${tile('완료', num(done.filter(x => x.status === '완료').length), '곳', '', { c: 'var(--green)' })}${tile('재연락 필요', num(done.filter(x => x.status === '재연락 필요').length), '곳', '', { c: 'var(--orange)' })}${tile('문의·이슈 있음', num(HAPPY.filter(hcIssue).length), '곳', '한 항목 이상', { c: 'var(--red)' })}</div>`;
+  const done = base.filter(h => h.status !== '예정'), rec = rows.filter(hcRecorded), p = paged(fk, rows, 20);
+  let h = `<div class="ov-tiles" style="--n:4">${tile(`${esc(t.name)} 대상`, num(base.length), '곳', '해피콜 탭', { grand: true })}${tile('완료', num(done.filter(x => x.status === '완료').length), '곳', '', { c: 'var(--green)' })}${tile('재연락 필요', num(done.filter(x => x.status === '재연락 필요').length), '곳', '', { c: 'var(--orange)' })}${tile('문의·이슈 있음', num(base.filter(hcIssue).length), '곳', '한 항목 이상', { c: 'var(--red)' })}</div>`;
   h += `<div class="card"><div class="card-head"><h3>항목별 확인 결과</h3><span class="hint">검색 · 태그 조건에 맞는 ${num(rec.length)}곳 기준 · <span style="color:var(--green)">■</span> 확인 <span style="color:var(--red)">■</span> 문의·이슈 <span style="color:var(--muted)">■</span> 해당 없음</span></div>
-    ${HCQ.map((q, i) => { const rs = rec.map(x => (x.answers[i] || {}).result), t = rs.length || 1, ok = rs.filter(r => r === '확인').length, is = rs.filter(r => r === '문의·이슈').length, na = rs.filter(r => r === '해당 없음').length;
-      return `<div class="hc-item"><div class="nm" title="${esc(q.title)}">${q.number} ${esc(q.title)}</div><div class="bar3" data-tip="확인 ${ok} · 문의·이슈 ${is} · 해당 없음 ${na}"><i class="ok" style="width:${ok / t * 100}%"></i><i class="is" style="width:${is / t * 100}%"></i><i class="na" style="width:${na / t * 100}%"></i></div><div class="v ${is ? 'bad' : ''}">${is ? `문의·이슈 ${is}` : ok ? '이상 없음' : '기록 없음'}</div></div>`; }).join('')}</div>`;
-  h += `<div class="card"><div class="card-head"><h3>해피콜 내역 ${src('cs')}</h3><span class="hint">최신순 · 매장을 누르면 질문과 매장 답변이 펼쳐짐</span></div>${filterBar('happy', HAPPY, tags, rows.length)}
+    ${HCQ.map((q, i) => { const rs = rec.map(x => (x.answers[i] || {}).result), n = rs.length || 1, ok = rs.filter(r => r === '확인').length, is = rs.filter(r => r === '문의·이슈').length, na = rs.filter(r => r === '해당 없음').length;
+      return `<div class="hc-item"><div class="nm" title="${esc(q.title)}">${q.number} ${esc(q.title)}</div><div class="bar3" data-tip="확인 ${ok} · 문의·이슈 ${is} · 해당 없음 ${na}"><i class="ok" style="width:${ok / n * 100}%"></i><i class="is" style="width:${is / n * 100}%"></i><i class="na" style="width:${na / n * 100}%"></i></div><div class="v ${is ? 'bad' : ''}">${is ? `문의·이슈 ${is}` : ok ? '이상 없음' : '기록 없음'}</div></div>`; }).join('')}</div>`;
+  h += `<div class="card"><div class="card-head"><h3>${esc(t.name)} 해피콜 내역 ${src('cs')}</h3><span class="hint">최신순 · 매장을 누르면 질문과 매장 답변이 펼쳐짐</span></div>${filterBar(fk, base, tags, rows.length)}
     <div class="hc-list">${p.rows.map(x => { const o = OPEN.has(x.key), st = SM[skey(x.store)];
       const calls = OB_CALLS.filter(c => c.skey && c.skey === skey(x.store) && /해피콜/.test(c.kind)).sort((a, b) => a.at - b.at);
       const meta = [x.kind, x.installed ? `설치 ${x.installed}` : '', x.callDate ? `해피콜 ${x.callDate}` : '해피콜 전', x.target ? `통화 ${x.target}` : '', calls.length ? `통화 기록 ${calls.length}회(${calls.map(c => c.result || '기록').join(' → ')})` : ''].filter(Boolean).join(' · ');
       return `<article class="hc-card ${o ? 'open' : ''}"><div class="hc-head" data-open="${esc(x.key)}" aria-expanded="${o}"><div><div class="hc-store">${esc(x.store)}</div><div class="hc-meta">${esc(meta)}${st ? ` · 설정 체크 ${checkSummary(st)}` : ''}</div><div class="hc-results">${hcChips(x)}</div></div>
-        <div class="hc-side"><span class="badge ${x.status === '완료' ? 'b-done' : x.status === '예정' ? 'b-gray' : 'b-open'}">${esc(x.status)}</span><span class="caret">${o ? '접기 ▴' : '보기 ▾'}</span></div></div>${o ? hcDetail(x) : ''}</article>`; }).join('') || empty('조건에 맞는 해피콜이 없습니다.')}</div>${pager('happy', p)}</div>`;
+        <div class="hc-side"><span class="badge ${x.status === '완료' ? 'b-done' : x.status === '예정' ? 'b-gray' : 'b-open'}">${esc(x.status)}</span><span class="caret">${o ? '접기 ▴' : '보기 ▾'}</span></div></div>${o ? hcDetail(x) : ''}</article>`; }).join('') || empty(base.length ? '조건에 맞는 해피콜이 없습니다.' : '아직 해피콜 탭에 매장이 없습니다.')}</div>${pager(fk, p)}</div>`;
+  return h;
+}
+// 통화 기록 유형(교육 및 기타 등): 콜라비 [컴포즈OB]로 건 통화가 시트 탭에 1건당 1행으로 쌓인 것. 줄을 누르면 문의 · 답변이 펼쳐집니다.
+function viewHappyLog(t) {
+  const fk = view, base = HCLOG.filter(x => x.type === t.name), share = mode === 'share', ms = hcMonthStart();
+  const tags = [
+    { key: 'result', label: '결과', get: x => x.result || '결과 없음' },
+    { key: 'follow', label: '후속', get: x => x.followup ? '후속 필요' : '' },
+    { key: 'req', label: '요청처', get: x => x.requester },
+    share ? null : { key: 'agent', label: '상담원', get: x => x.agent }
+  ].filter(Boolean);
+  const rows = applyFilter(fk, base, { store: x => x.store, text: x => [x.requester, x.contact, x.result, x.question, x.answer, x.callNo].join(' '), tags });
+  const p = paged(fk, rows, 30), byRes = countBy(rows, x => x.result || '결과 없음'), byReq = countBy(rows, x => x.requester || '미기재');
+  let h = `<div class="ov-tiles" style="--n:4">${tile(`${esc(t.name)} 통화`, num(base.length), '건', '전체 기간', { grand: true })}${tile('이번 달', num(base.filter(x => x.t && x.t >= ms).length), '건', `${TODAY.getMonth() + 1}월`)}${tile('후속 필요', num(base.filter(x => x.followup).length), '건', '부재 · 재연락 등', { c: 'var(--orange)' })}${tile('매장', num(new Set(base.map(x => skey(x.store))).size), '곳', '통화한 매장')}</div>`;
+  if (base.length) h += `<div class="grid2 even grid-gap"><div class="card" style="margin:0"><div class="card-head"><h3>결과별</h3><span class="hint">검색 · 태그 조건 기준</span></div>${hbars(byRes, byRes.length ? byRes[0][1] : 0)}</div>
+    <div class="card" style="margin:0"><div class="card-head"><h3>요청처별</h3></div>${hbars(byReq, byReq.length ? byReq[0][1] : 0)}</div></div>`;
+  const cols = share ? 4 : 6;
+  h += `<div class="card"><div class="card-head"><h3>${esc(t.name)} 통화 기록 ${src('cs')}</h3><span class="hint">최신순${share ? '' : ' · 줄을 누르면 문의 · 답변이 펼쳐짐'}</span></div>${filterBar(fk, base, tags, rows.length)}
+    <div class="tbl-scroll"><table class="mcard"><thead><tr><th>일시</th><th>매장</th><th>요청처</th>${share ? '' : '<th style="width:30%">연락 내용</th>'}<th>결과</th>${share ? '' : '<th>상담원</th>'}</tr></thead><tbody>
+    ${p.rows.map(x => { const cells = `<td style="white-space:nowrap">${esc(String(x.at || '').slice(0, 16) || '—')}</td><td><b>${esc(x.store)}</b>${share ? '' : caret(x.key)}</td><td>${esc(x.requester || '—')}</td>${share ? '' : `<td>${esc(x.contact || '—')}</td>`}<td>${hcResBadge(x.result, x.followup)}</td>${share ? '' : `<td class="muted">${esc(x.agent || '—')}</td>`}`;
+      return share ? `<tr>${cells}</tr>` : xrow(x.key, cells, cols, () => `<div class="vp" style="--n:2">${infoBox([['콜라비 상담번호', x.callNo], ['상담원', x.agent], ['요청처', x.requester], ['등록 일시', String(x.registeredAt || '').slice(0, 16)]])}${panel('asis', '?', '문의 내용', x.question)}${panel('act', '✓', '답변 내용', x.answer)}</div>`); }).join('')
+      || `<tr><td colspan="${cols}">${empty(base.length ? '조건에 맞는 통화 기록이 없습니다.' : `아직 ${esc(t.name)} 통화 기록이 없습니다. 콜라비에서 [컴포즈OB] → 해피콜(${esc(t.name)})로 통화를 마치면 시트 탭에 쌓이고 여기에 보여요.`)}</td></tr>`}
+    </tbody></table></div>${pager(fk, p)}</div>`;
   return h;
 }
 
@@ -2619,14 +2730,19 @@ function viewPrecheck() {
 /* ================================================================ 그리기 · 이벤트 */
 function render() {
   if (!RAW) return;
+  // 공유용에서 아직 열지 않은 해피콜 유형 화면이면 해피콜 전체로 돌려보냅니다.
+  if (HC_VIEWS[view] && !hcVisible(HC_VIEWS[view])) view = 'happy';
   if (mode === 'share' && INTERNAL_VIEWS.includes(view)) view = 'overview';
   if (!scopes()[scope]) scope = '30d';
   if (!month || !months().includes(month)) month = months()[RECS.some(r => r.date.slice(0, 7) === ymd(TODAY).slice(0, 7)) && TODAY.getDate() > 7 ? 0 : 1] || months()[0] || ymd(TODAY).slice(0, 7);
-  document.querySelectorAll('.view-tab').forEach(b => b.classList.toggle('active', b.dataset.v === view && !b.classList.contains('parent')));
-  document.querySelectorAll('.view-tab.parent').forEach(b => b.classList.toggle('in', b.dataset.v === 'records' ? CONSULT_VIEWS.includes(view) : ['principles', 'incident', 'happycall', 'precheck'].includes(view)));
+  // 해피콜 하위 메뉴가 숨겨진 공유용에서는 '해피콜' 묶음 버튼 자체를 선택 표시합니다.
+  const hcSubHidden = mode === 'share' && !Object.values(HC_VIEWS).some(hcVisible);
+  document.querySelectorAll('.view-tab').forEach(b => b.classList.toggle('active', b.dataset.v === view && (!b.classList.contains('parent') || (b.dataset.v === 'happy' && hcSubHidden))));
+  document.querySelectorAll('.view-tab.parent').forEach(b => b.classList.toggle('in', b.dataset.v === 'records' ? CONSULT_VIEWS.includes(view) : b.dataset.v === 'happy' ? isHappyView(view) && !hcSubHidden : ['principles', 'incident', 'happycall', 'precheck'].includes(view)));
+  syncHcCounts();
   const t = TITLES[view];
   document.title = `${t[0]} · 컴포즈 통합 대시보드`;
-  document.getElementById('pgSub').innerHTML = `<b>${t[0]}</b> · ${t[1]}${GUIDE_VIEWS.includes(view) || ['updates', 'precheck'].includes(view) ? '' : ' · ' + (view === 'report' ? ymLabel(month) : CONSULT_VIEWS.includes(view) || view === 'overview' ? perLabel() : ['equip', 'happy'].includes(view) ? '전체 기간' : scopes()[scope])}`;
+  document.getElementById('pgSub').innerHTML = `<b>${t[0]}</b> · ${t[1]}${GUIDE_VIEWS.includes(view) || ['updates', 'precheck'].includes(view) ? '' : ' · ' + (view === 'report' ? ymLabel(month) : CONSULT_VIEWS.includes(view) || view === 'overview' ? perLabel() : view === 'equip' || isHappyView(view) ? '전체 기간' : scopes()[scope])}`;
   document.getElementById('ctlHost').innerHTML = CONSULT_VIEWS.includes(view) || view === 'overview' ? perControls() : view === 'report'
     ? `<select id="monthSel">${months().map(m => `<option value="${m}" ${m === month ? 'selected' : ''}>${ymLabel(m)}</option>`).join('')}</select><button class="btn" id="printBtn">🖨 인쇄 · PDF</button>`
     : view === 'stores' ? `<div class="seg" id="scopeSeg">${Object.entries(scopes()).map(([k, l]) => `<button data-s="${k}" class="${scope === k ? 'on' : ''}">${l}</button>`).join('')}</div>` : '';
@@ -2634,7 +2750,20 @@ function render() {
   if (GUIDE_VIEWS.includes(view)) { const g = host.querySelector('.guide.g-editing'); if (g && GEDIT) GDRAFT = guideCleanHtml(g); document.getElementById('viewHost').innerHTML = viewGuide(); afterGuide(); return; }
   if (view === 'precheck') { document.getElementById('viewHost').innerHTML = viewPrecheck(); loadThumbs(); return; }
   if (view === 'updates') { captureDraft(); document.getElementById('viewHost').innerHTML = viewUpdates(); loadThumbs(); return; }
-  document.getElementById('viewHost').innerHTML = errs + pinBanner() + { overview: viewOverview, records: viewRecords, stores: viewStores, equip: viewEquip, happy: viewHappy, process: viewProcess, issues: viewIssues, voc: viewVoc, cands: viewCands, report: viewReport }[view]();
+  document.getElementById('viewHost').innerHTML = errs + pinBanner() + (isHappyView(view) ? viewHappy : { overview: viewOverview, records: viewRecords, stores: viewStores, equip: viewEquip, process: viewProcess, issues: viewIssues, voc: viewVoc, cands: viewCands, report: viewReport }[view])();
+}
+// 사이드바 해피콜 유형 메뉴 옆 숫자 = 아직 끝나지 않은 건(예정 · 진행 중 · 재연락 필요). HC_TYPE_TABS_IN_SHARE를 끄면 공유용은 묶음째 숨깁니다.
+function syncHcCounts() {
+  const sub = document.getElementById('hcSubTabs');
+  // 공유용: 기록이 있는 유형만 보이고, HC_TYPE_TABS_IN_SHARE가 꺼져 있으면 하위 메뉴 전체를 숨깁니다.
+  if (sub) sub.hidden = mode === 'share' && !Object.values(HC_VIEWS).some(hcVisible);
+  // 운영 전(시트 탭 없음) 유형은 '추후'로 보입니다. 숫자 = 후속 필요(신규 설치는 완료 전, 통화 기록은 부재 · 재연락 등).
+  document.querySelectorAll('[data-hcn]').forEach(el => {
+    const name = HC_VIEWS[el.dataset.hcn], t = hcTypeOf(name), btn = el.closest('.view-tab'), n = t ? hcOpenCount(t) : 0;
+    if (btn) btn.hidden = !hcVisible(name);
+    el.textContent = !t ? '추후' : n ? String(n) : '';
+    el.title = !t ? `${name} 해피콜은 추후 운영 예정` : n ? `후속 필요 ${name} 해피콜 ${n}건` : '';
+  });
 }
 // 화면 워딩 통일: 시트 · 슬랙에서 들어온 글자 중 '원격 이관'은 '원격 지원'으로 보여 줍니다.
 function normalizeWords(o) {
@@ -2719,6 +2848,9 @@ host.addEventListener('click', e => {
   if (e.target.closest('[data-closeall]')) { OPEN.clear(); DET_OPEN.clear(); render(); return; }
   const rs = e.target.closest('[data-freset]'); if (rs) { const k = rs.closest('[data-fk]').dataset.fk; F[k] = { store: '', q: '', tags: {} }; PG[k] = 1; render(); return; }
   const ht = e.target.closest('[data-hct]'); if (ht) { hcType = ht.dataset.hct; render(); return; }
+  // 해피콜 전체 › 유형별 현황 표에서 유형을 누르면 그 유형 메뉴로, 추후 유형 화면의 [스크립트 보기]는 상담 가이드 해피콜 스크립트로
+  const hs = e.target.closest('[data-hcscript]'); if (hs) { hcType = hs.dataset.hcscript; view = 'happycall'; OPEN.clear(); NAV_BACK = null; render(); window.scrollTo(0, 0); return; }
+  const hg = e.target.closest('[data-hcgo]'); if (hg) { view = hg.dataset.hcgo; OPEN.clear(); NAV_BACK = null; render(); window.scrollTo(0, 0); return; }
   const tg = e.target.closest('[data-toggle-key]'); if (tg) { e.preventDefault(); const k = tg.dataset.toggleKey; OPEN.has(k) ? OPEN.delete(k) : OPEN.add(k); render(); return; }
   if (e.target.closest('[data-man-reload]')) { MAN = null; MAN_ERR = ''; MAN_EDIT = ''; render(); return; }
   // 사전체크 매뉴얼 고치기 · 추가 · 지우기
