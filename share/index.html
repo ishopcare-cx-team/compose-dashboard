@@ -1046,15 +1046,18 @@ function buildModel(raw) {
     if (!best) RECS.forEach(r => { if (r.src !== 'cs' || !keys.includes(r.skey)) return; const d = Math.abs(asked - r.at); if (d <= 864e5 && d < bestDiff && !(r.toss && r.toss.slack)) { best = r; bestDiff = d; } });
     // 시트 상담이 없으면: 같은 매장 · 같은 날 그 전에 들어온 콜(원격 요청 기록)에 붙입니다. 토스플레이스 이관 글은 콜이 아니라 그 콜의 처리 현황입니다.
     if (!best) orphans.forEach(r => { if (r.viaCollab || !keys.includes(r.skey) || r.date !== ymd(asked) || r.at - asked > LINK.DUP_MIRROR_MIN * 60000 || (r.toss && r.toss.slack)) return; const d = Math.abs(asked - r.at); if (d < bestDiff) { best = r; bestDiff = d; } });
-    const info = { asked, done: done || (t.status === '회신' ? asked : null), sum: t.sum || null, lastAt: P(t.lastAt), slack: { question: t.question, answer: t.answer, status: t.status, channel: t.channel || '고객센터-플레이스' } };
+    const info = { asked, done: done || (t.status === '회신' ? asked : null), sum: t.sum || null, lastAt: P(t.lastAt), poster: t.poster || '', posterTeam: t.posterTeam || '', slack: { question: t.question, answer: t.answer, status: t.status, channel: t.channel || '고객센터-플레이스' } };
     if (best) { best.toss = Object.assign({}, best.toss || {}, info, { asked: (best.toss && best.toss.asked) || asked, done: (best.toss && best.toss.done) || info.done }); tossLinked++; }
     else { const st = SM[keys[0]]; TOSS_ONLY.push(Object.assign({ id: `토플-${t.date.slice(2).replace(/-/g, '.')}-${pad(n + 1)}`, at: asked, date: ymd(asked), store: st ? st.name : t.store, skey: keys[0] || '' }, info)); }
   });
   TOSS_ONLY.filter(t => t.slack && t.slack.channel === '협업채널' && t.skey).forEach(t => {
     t.asRec = true;
-    const sm = t.sum || {}, mth = { '현장 지원': '현장 지원', '원격 지원': '원격지원', 'CS 안내': 'CS안내', '토스플레이스 확인': '토스플레이스 확인' }[sm.method] || (/교체|설치|방문|현장|회수|철거/.test(t.slack.question || '') ? '현장 지원' : '토스플레이스 확인');
-    orphans.push({ id: `${t.date.slice(2).replace(/-/g, '.')}-C${hm(t.at).replace(':', '')}`, src: 'oc', inflow: '원격팀', side: '원격', viaCollab: true, at: t.at, date: t.date, store: t.store, skey: t.skey,
-      cat: sm.category || '기능 관련 · 원격 지원', channel: guessChannel(t.slack.question), q: sm.intake || t.slack.question || '협업채널 문의', a: '', method: mth, status: t.done || sm.resolved ? '완료' : '처리중',
+    // 11/11부터: 완료 = 토스플레이스 회신이 있을 때만(AI 정리의 '해결'만으로는 완료 아님). 처리 방식 = AI 정리 → 올린 사람 팀(원격팀 → 원격지원, 현장 → 현장 지원, CX · 모름 → 토스플레이스 확인). 인입 = CX가 올리면 고객센터
+    const sm = t.sum || {}, NEWR = t.date >= TOSS_RULE_FROM, pt = teamOf(t.posterTeam) || (t.poster && OC_NAMES.has(fullName(t.poster)) ? 'OC' : ''), byAi = { '현장 지원': '현장 지원', '원격 지원': '원격지원', 'CS 안내': 'CS안내', '토스플레이스 확인': '토스플레이스 확인' }[sm.method];
+    const mth = byAi || (NEWR ? (/현장/.test(t.posterTeam || '') ? '현장 지원' : pt === 'OC' ? '원격지원' : '토스플레이스 확인') : (/교체|설치|방문|현장|회수|철거/.test(t.slack.question || '') ? '현장 지원' : '토스플레이스 확인'));
+    const cxPost = NEWR && (pt === 'CX' || /고객센터/.test(t.posterTeam || ''));
+    orphans.push({ id: `${t.date.slice(2).replace(/-/g, '.')}-C${hm(t.at).replace(':', '')}`, src: 'oc', inflow: cxPost ? '고객센터' : '원격팀', side: cxPost ? 'CS' : '원격', poster: t.poster || '', viaCollab: true, at: t.at, date: t.date, store: t.store, skey: t.skey,
+      cat: sm.category || '기능 관련 · 원격 지원', channel: guessChannel(t.slack.question), q: sm.intake || t.slack.question || '협업채널 문의', a: '', method: mth, status: t.done || (!NEWR && sm.resolved) ? '완료' : '처리중',
       route: '협업채널', cx: '', toss: t, csOwner: '', csAction: '', issue: null, remote: null, visit: null, doneAt: t.done || null, minutes: t.done ? (t.done - t.at) / 60000 : null });
   });
   CS_LAST = RECS.filter(r => r.src === 'cs' && !r.slackOnly).reduce((m, r) => r.date > m ? r.date : m, '');
@@ -1086,7 +1089,7 @@ function buildModel(raw) {
   const CX_NAMES = new Set(RECS.filter(r => r.src === 'cs' && !r.slackOnly && r.cx).map(r => fullName(r.cx)));
   RECS.forEach(r => {
     if (r.src === 'cs') r.side = r.slackOnly && OC_NAMES.has(fullName(r.cx)) && !CX_NAMES.has(fullName(r.cx)) ? '원격' : 'CS';
-    else r.side = r.inflow === 'OS' ? 'OS' : r.cxHandoff || (r.remote && (teamOf(r.remote.requesterTeam) === 'CX' || (r.remote.requester && CX_NAMES.has(fullName(r.remote.requester))))) ? 'CS' : '원격';
+    else r.side = r.viaCollab && r.inflow === '고객센터' ? 'CS' : r.inflow === 'OS' ? 'OS' : r.cxHandoff || (r.remote && (teamOf(r.remote.requesterTeam) === 'CX' || (r.remote.requester && CX_NAMES.has(fullName(r.remote.requester))))) ? 'CS' : '원격';
   });
   // 처리 방식 우선순위: 현장 방문 > 원격 기록 > 상담 내역 처리 방식. 카드 · 막대 · 처리 내역이 모두 이 값을 씁니다.
   RECS.forEach(r => { if (r.method === 'CS안내' && r.remote && r.remote.linked) { r.methodRaw = r.method; r.method = '원격지원'; } });
@@ -1350,6 +1353,8 @@ const OPEN = new Set();
 const DET_OPEN = new Set();
 // 상담 내역 발신(OB) 줄 = 해피콜 통화 기록(인입 건수에서 뺌)
 let OB_CALLS = [];
+// 토스 회신 판정 · 협업채널 처리 방식(올린 사람 팀 기준) 새 규칙 시작일(2026-11-11 결정, 그 전 건은 예전 규칙)
+const TOSS_RULE_FROM = '2026-11-11';
 // 다른 탭의 건으로 옮겨 갔을 때 돌아갈 자리(탭 · 기간 · 필터 · 쪽 · 펼친 줄 · 스크롤). 사이드바로 탭을 옮기면 지웁니다.
 let NAV_BACK = null;
 // 검색 · 태그 조건(검색 줄마다 따로): { store: 지점명, q: 내용 키워드, tags: { 태그: 값 } } · 쪽 번호
@@ -1715,7 +1720,7 @@ function tlItems(r) {
   // 다섯 단계 틀: ① 인입 ② 원격 지원 요청 ③ 원격 확인 · 1차 조치 ④ 2차 대응(확인 중인 내용) ⑤ 최종 해결
   const S = r.slack || {}, R = r.remote, T = r.toss, V = r.visit, items = [];
   const add = (step, label, t, text, tag, full) => items.push({ step, label, t: t || null, text: finishKo(text || ''), tag: tag || '', full: full || text || '' });
-  const via = r.inflow === 'OS' ? 'OS' : r.src === 'oc' ? (r.cxHandoff ? 'CX' : '원격') : r.inflow === '고객센터' ? 'CX' : r.inflow === '법인폰·수기' ? '법인폰' : r.inflow || 'CX';
+  const via = r.inflow === 'OS' ? 'OS' : r.src === 'oc' ? (r.cxHandoff || r.inflow === '고객센터' ? 'CX' : '원격') : r.inflow === '고객센터' ? 'CX' : r.inflow === '법인폰·수기' ? '법인폰' : r.inflow || 'CX';
   const lines = a => a.filter(Boolean).join('\n'), L = (r.caseSum && r.caseSum.lines) || {};
   // ① 인입
   add(1, `인입 · ${via}`, r.at, L.intake || compress(r.q) || r.cat, '', lines([r.qFull || r.q, r.cat ? `문의유형: ${r.cat}` : '', r.channel ? `장비·채널: ${r.channel}` : '', r.cx ? `접수: ${fullName(r.cx)}` : '']));
