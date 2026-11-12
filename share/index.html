@@ -118,15 +118,16 @@
   .ov-tile{background:var(--canvas); border-radius:16px; padding:16px 18px; box-shadow:var(--shadow); border-left:4px solid var(--c,var(--accent-line))}
   .ov-tile .ov-name{font-size:14px; font-weight:600; color:var(--gray); display:flex; align-items:center; gap:6px}
   .ov-tile .ov-name{white-space:nowrap} .ov-tile .ov-name .src-tag{font-size:10.5px; padding:1px 5px}
-  .ov-tiles[style*="--n:7"]{gap:10px}
-  .ov-tiles[style*="--n:7"] .ov-tile{padding:12px 13px; border-radius:14px; min-width:0}
-  .ov-tiles[style*="--n:7"] .ov-tile .ov-name{font-size:12.5px}
-  .ov-tiles[style*="--n:7"] .ov-tile .ov-val{font-size:24px; margin-top:7px; white-space:nowrap}
-  .ov-tiles[style*="--n:7"] .ov-tile .ov-val small{font-size:12.5px}
-  .ov-tiles[style*="--n:7"] .ov-tile .ov-sub{font-size:11px; margin-top:6px; line-height:1.5; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .ov-tiles:is([style*="--n:7"],[style*="--n:6"]){gap:10px}
+  .ov-tiles:is([style*="--n:7"],[style*="--n:6"]) .ov-tile{padding:12px 13px; border-radius:14px; min-width:0}
+  .ov-tiles:is([style*="--n:7"],[style*="--n:6"]) .ov-tile .ov-name{font-size:12.5px}
+  .ov-tiles:is([style*="--n:7"],[style*="--n:6"]) .ov-tile .ov-val{font-size:24px; margin-top:7px; white-space:nowrap}
+  .ov-tiles:is([style*="--n:7"],[style*="--n:6"]) .ov-tile .ov-val small{font-size:12.5px}
+  .ov-tiles:is([style*="--n:7"],[style*="--n:6"]) .ov-tile .ov-sub{font-size:11px; margin-top:6px; line-height:1.5; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
   .ov-i{display:inline-flex; align-items:center; justify-content:center; width:15px; height:15px; border-radius:50%; border:1px solid currentColor; font-size:10px; font-weight:800; font-style:normal; line-height:1; opacity:.65; cursor:help; flex:0 0 auto}
   .ov-i:hover{opacity:1}
-  .ov-tile .ov-sub.one{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:12px; letter-spacing:-.02em}
+  .ov-tile[data-ovgo]{cursor:pointer; transition:transform .12s, box-shadow .12s} .ov-tile[data-ovgo]:hover{transform:translateY(-2px); box-shadow:0 6px 18px rgba(0,0,0,.10)} .ov-tile[data-ovgo]:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  .ov-tile.wide{grid-column:span 2} .ov-tile .ov-sub.one{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:12px; letter-spacing:-.02em}
   #tip.wrap{white-space:normal; max-width:280px; line-height:1.55; font-weight:500}
   #navTip{position:fixed; z-index:60; width:260px; padding:12px 14px; border-radius:12px; background:var(--canvas); color:var(--ink); border:1px solid var(--line-soft); box-shadow:var(--shadow); font-size:12.5px; line-height:1.6; pointer-events:none; opacity:0; transition:opacity .12s}
   #navTip b{display:block; font-size:13.5px; margin-bottom:4px}
@@ -1499,7 +1500,7 @@ const statusBadge = s => `<span class="badge ${/^완료/.test(s) ? 'b-done' : /^
 const methodBadge = m => `<span class="badge b-gray ${m === 'CS' ? 'm-cs' : m === '원격지원' ? 'm-remote' : m === '현장지원' ? 'm-visit' : ''}">${esc(m)}</span>`;
 const inflowTag = v => `<span class="tag ${v === '고객센터' ? 'in-cs' : v === '원격팀' ? 'in-oc' : v === '현장' ? 'in-vs' : v === 'OS' ? 'in-os' : 'in-etc'}">${esc(v || '—')}</span>`;
 const stage = r => r.status === '완료' ? '완료' : r.toss && !r.toss.done ? '토스플레이스 확인중' : r.visit && r.visit.pending ? '방문 예정' : r.remote && !r.remote.start ? '원격 대기' : r.remote ? '원격 진행 중' : '상담 처리중';
-const tile = (name, val, unit, sub, opt = {}) => `<div class="ov-tile ${opt.grand ? 'grand' : ''}" style="${opt.c ? '--c:' + opt.c : ''}"><div class="ov-name">${name}${opt.info ? `<i class="ov-i" data-tip="${esc(opt.info)}" aria-label="${esc(opt.info)}">i</i>` : ''}${opt.src ? `<span style="margin-left:auto">${opt.src}</span>` : ''}</div><div class="ov-val">${val}<small>${unit}</small></div><div class="ov-sub${opt.one ? ' one' : ''}">${sub}</div></div>`;
+const tile = (name, val, unit, sub, opt = {}) => `<div class="ov-tile ${opt.grand ? 'grand' : ''}${opt.wide ? ' wide' : ''}"${opt.go != null ? ` data-ovgo="${esc(opt.go)}" role="button" tabindex="0" title="누르면 인입 현황에서 이 건들을 봐요"` : ''} style="${opt.c ? '--c:' + opt.c : ''}"><div class="ov-name">${name}${opt.info ? `<i class="ov-i" data-tip="${esc(opt.info)}" aria-label="${esc(opt.info)}">i</i>` : ''}${opt.src ? `<span style="margin-left:auto">${opt.src}</span>` : ''}</div><div class="ov-val">${val}<small>${unit}</small></div><div class="ov-sub${opt.one ? ' one' : ''}">${sub}</div></div>`;
 const hbars = (rows, max) => rows.map(([k, v, extra]) => `<div class="hbar"><div class="nm" title="${esc(k)}">${esc(k)}</div><div class="tr"><div class="fl" style="width:${max ? v / max * 100 : 0}%${v ? '' : ';min-width:0'}"></div></div><div class="v"><b>${num(v)}</b>건${extra ? ' · ' + extra : ''}</div></div>`).join('');
 const countBy = (arr, f) => { const m = {}; arr.forEach(x => { const k = f(x); if (k != null && k !== '') m[k] = (m[k] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
 const delta = (v, p) => { const d = v - p; return d > 0 ? `<span class="delta up">▲ ${num(d)}</span>` : d < 0 ? `<span class="delta down">▼ ${num(-d)}</span>` : '<span class="delta flat">–</span>'; };
@@ -1564,10 +1565,11 @@ function hourChart(rows) {
   });
   return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="시간대별 상담 건수">${g}</svg></div>`;
 }
-function methodStack(s) {
+function methodStack(s, lab) {
+  const L = Object.assign({ cs: 'CS', remote: '원격지원', visit: '현장지원', toss: '토플 단독', etc: '처리 중' }, lab || {});
   const t = s.mCs + s.mRemote + s.mVisit + (s.mField || 0) + (s.mToss || 0) + (s.mEtc || 0) || 1, seg = (n, c, l) => n ? `<div style="flex:${n};background:var(${c})" data-tip="<b>${n}건</b> · ${l} ${(n / t * 100).toFixed(0)}%">${n / t > .09 ? (n / t * 100).toFixed(0) + '%' : ''}</div>` : '';
-  return `<div class="stack">${seg(s.mCs, '--s1', 'CS')}${seg(s.mRemote, '--s2', '원격지원')}${seg(s.mVisit, '--s3', '현장지원')}${seg(s.mField || 0, '--green', '현장 지원')}${seg(s.mToss || 0, '--purple', '토플 단독')}${seg(s.mEtc || 0, '--gray2', '처리 중')}</div>
-    <div class="legend"><span><i style="background:var(--s1)"></i>CS ${num(s.mCs)}건</span><span><i style="background:var(--s2)"></i>원격지원 ${num(s.mRemote)}건</span><span><i style="background:var(--s3)"></i>현장지원 ${num(s.mVisit)}건</span>${s.mField ? `<span><i style="background:var(--green)"></i>현장 지원 ${num(s.mField)}건</span>` : ''}${s.mToss ? `<span><i style="background:var(--purple)"></i>토플 단독 ${num(s.mToss)}건</span>` : ''}${s.mEtc ? `<span><i style="background:var(--gray2)"></i>처리 중 ${num(s.mEtc)}건</span>` : ''}</div>`;
+  return `<div class="stack">${seg(s.mCs, '--s1', L.cs)}${seg(s.mRemote, '--s2', L.remote)}${seg(s.mVisit, '--s3', L.visit)}${seg(s.mField || 0, '--green', '현장 지원')}${seg(s.mToss || 0, '--purple', L.toss)}${seg(s.mEtc || 0, '--gray2', L.etc)}</div>
+    <div class="legend"><span><i style="background:var(--s1)"></i>${L.cs} ${num(s.mCs)}건</span>${L.remote ? `<span><i style="background:var(--s2)"></i>${L.remote} ${num(s.mRemote)}건</span>` : ''}${L.visit ? `<span><i style="background:var(--s3)"></i>${L.visit} ${num(s.mVisit)}건</span>` : ''}${s.mField ? `<span><i style="background:var(--green)"></i>현장 지원 ${num(s.mField)}건</span>` : ''}${s.mToss ? `<span><i style="background:var(--purple)"></i>${L.toss} ${num(s.mToss)}건</span>` : ''}${s.mEtc ? `<span><i style="background:var(--gray2)"></i>${L.etc} ${num(s.mEtc)}건</span>` : ''}</div>`;
 }
 const storeName = k => (SM[k] || {}).name || k;
 
@@ -1614,6 +1616,9 @@ const REC_TAGS = [
   { key: 'cat', label: '문의유형', get: r => r.cat }, { key: 'io', label: '구분(IB/OB)', get: r => r.io || '원격팀 기록 등' }, { key: 'method', label: '처리 방식', get: r => r.method },
   { key: 'status', label: '처리상태', get: r => r.status }, { key: 'link', label: '연결', get: REC_LINK }, { key: 're', label: '재인입', get: r => r.prevRec ? '재인입(이전 건 연장)' : r.nextRecs && r.nextRecs.length ? '이후 재인입 있음' : '' }
 ];
+// 최종 결과(전체현황 카드와 같은 칸 이름): finalOf 기준
+const FINAL_LABEL = { cs: '자체 해결', remote: '자체 해결', visit: '자체 해결', open: '자체 해결', toss: '토플 확인' };
+REC_TAGS.push({ key: 'final', label: '최종 결과', get: r => FINAL_LABEL[finalOf(r)], order: ['자체 해결', '토플 확인'] });
 const recFilter = (k, rows, tags) => applyFilter(k, rows, { store: r => r.store, text: REC_TEXT, tags });
 const inProc = r => !!(r.remote || r.visit || r.toss || /원격|방문|현장/.test(r.method || ''));
 const procAt = r => (r.remote && r.remote.start) || (r.visit && r.visit.date) || r.at;
@@ -1622,25 +1627,38 @@ const recRow = r => xrow(`rec:${r.id}`, `<td style="white-space:nowrap"><b>${esc
 const REC_HEAD = '<thead><tr><th>접수번호</th><th>접수일시</th><th>구분</th><th>인입</th><th>매장명</th><th>문의유형</th><th>장비·채널</th><th>처리 방식</th><th class="num">처리 시간</th><th>처리상태</th><th class="rmt">원격 처리</th></tr></thead>';
 
 /* ================================================================ 화면 */
+// 전체현황 최종 결과(2026-11-12 결정): 한 건은 한 칸에만 셉니다. 자체 해결(CS · 원격 · 현장, 해결 + 진행 중) + 토플 확인 = 전체 접수.
+//   토플 확인 = 처리 방식이 토스플레이스 확인이거나 지금 토스플레이스 확인중(회신 대기 포함, 원격을 거쳤어도 여기)
+//   그 밖에 완료된 건 = 처리 방식대로 CS 자체 해결 · 원격 해결 · 현장 해결, 끝나지 않은 건 = 처리 중
+const finalOf = r => r.method === '토스플레이스 확인' || /^확인중/.test(r.status || '') ? 'toss' : r.status !== '완료' ? 'open' : r.method === '원격지원' ? 'remote' : r.method === '현장지원' ? 'visit' : 'cs';
+// 전체현황 카드 → 인입 현황(같은 기간 · 지점 · 키워드 · 인입 채널 · 장비 · 처리 방식 조건 + 최종 결과)
+function goOverviewCard(final) {
+  const o = flt('overview');
+  NAV_BACK = { view, per: JSON.parse(JSON.stringify(PER)), f: JSON.parse(JSON.stringify(F)), pg: Object.assign({}, PG), open: [...OPEN], y: window.scrollY };
+  F.records = { store: o.store, q: o.q, tags: Object.assign({}, o.tags, final ? { final } : {}) }; PG.records = 1;
+  view = 'records'; OPEN.clear(); syncSide(); render(); window.scrollTo(0, 0);
+}
+document.addEventListener('keydown', e => { const og = e.target.closest && e.target.closest('[data-ovgo]'); if (og && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); goOverviewCard(og.dataset.ovgo); } });
 function viewOverview() { return viewOverviewBase() + dataCheckCard(); }
 function viewOverviewBase() {
   const tags = REC_TAGS.filter(t => ['inflow', 'channel', 'method'].includes(t.key));
   const base = recFilter('overview', RECS, tags), rows = base.filter(r => inPeriod(r.at)), prev = base.filter(r => inPrevPeriod(r.at)), s = stats(rows), p = stats(prev);
   const sq = skey(flt('overview').store), byStore = x => !sq || skey(x.store).includes(sq) || (x.affectedKeys || []).some(k => k.includes(sq));
   const d = s.total - p.total, noPrev = prevPeriodRange()[1] <= P(DATA_FROM);
-  // 토플 확인 · 현장 방문 카드는 처리 방식 기준(2026-11-12): 전체 접수 안의 건만, 한 건은 한 카드에만 셉니다(처리 흐름 막대와 같은 기준).
-  const tossRows = rows.filter(r => r.method === '토스플레이스 확인'), tossOpen = tossRows.filter(r => !(r.toss && r.toss.done)).length, tossAvg = avg(tossRows.map(tossWait).filter(v => v != null));
-  const visitRows = rows.filter(r => r.method === '현장지원'), visitPending = visitRows.filter(r => r.visit && r.visit.pending).length;
+  const fin = { cs: [], remote: [], visit: [], toss: [], open: [] }; rows.forEach(r => fin[finalOf(r)].push(r));
+  const selfDone = fin.cs.concat(fin.remote, fin.visit), self = selfDone.concat(fin.open), tossRows = fin.toss, tossDone = tossRows.filter(r => r.status === '완료').length;
+  // 해결 시간: 자체 해결로 완료된 건의 접수 → 처리 완료(토플 건 제외). 몇 건이 길면 평균이 크게 흔들려 중앙값을 크게 보여 줍니다.
+  const solveMins = selfDone.map(r => r.minutes).filter(v => v != null && v >= 0);
   let h = filterBar('overview', RECS.filter(r => inPeriod(r.at)), tags, rows.length);
   // 공유용도 내부용과 같은 카드 · 차트 · 문구를 씁니다(데이터는 이름 가림 · 정제 문장). 담당자별 처리처럼 사람 이름이 나오는 운영 카드만 내부용에서만.
-  // 카드 4칸(2026-11-12): 원격 처리 · 상담 중 해결 · 미해결 이슈는 다른 카드와 겹치거나 상담이 아닌 숫자라 뺐습니다(처리 흐름 · 통합 이슈에서 봄).
+  // 카드(2026-11-12 확정): 전체 접수 = 자체 해결 + 토플 확인(겹치지 않음). 해결 시간은 건수와 별개.
   h += `<div class="ov-tiles" style="--n:4">`
-    + tile('전체 접수', num(s.total), '건', `${INFLOWS.map(k => [k, rows.filter(r => r.inflow === k).length]).filter(x => x[1]).map(([k, v]) => `${k} ${num(v)}`).join(' · ') || '—'}<br>${prevLabel()} 대비 ${noPrev ? '—' : `${d >= 0 ? '+' : '−'}${num(Math.abs(d))}`}`, { grand: true, info: '선택한 기간에 들어온 컴포즈 문의 수예요. 고객센터 · 원격팀 · OS 인입을 모두 세고, 같은 문의를 다시 적은 줄은 한 건으로 묶어요. 해피콜 등 발신(OB)은 빼요.' })
-    + tile('평균 해결 시간', fmtMin(s.avgMin), '', `중앙값 ${fmtMin(s.medMin)}<br>처리 완료 · 방문·토플 제외`, { info: '완료된 건의 접수부터 처리 완료까지 걸린 시간 평균이에요. 현장 방문 · 토스플레이스 확인 건은 기다리는 시간이 길어 빼고 계산해요.' })
-    + tile('토플 확인', num(tossRows.length), '건', `평균 ${fmtMin(tossAvg)} · 대기 ${num(tossOpen)}건 · 완료 ${num(tossRows.length - tossOpen)}건`, { src: '<span class="src-tag src-toss">토플</span>', c: 'var(--purple)', one: true, info: '전체 접수 중 처리 방식이 토스플레이스 확인인 건이에요(토플 확인 이모지 · 협업채널 VOC 접수). 평균은 요청부터 토스플레이스 회신까지, 대기는 아직 회신이 없는 건이에요.' })
-    + tile('현장 방문', num(visitRows.length), '건', visitRows.length ? `방문 완료 ${num(visitRows.length - visitPending)}건 · 예정 ${num(visitPending)}건` : '이 기간 없음', { src: src('oc'), c: 'var(--s3)', info: '전체 접수 중 처리 방식이 현장지원인 건이에요(원격팀 기록의 현장 방문 AS). 신규 설치 방문은 문의가 아니라 세지 않아요.' }) + `</div>`;
+    + tile('전체 접수', num(s.total), '건', `${INFLOWS.map(k => [k, rows.filter(r => r.inflow === k).length]).filter(x => x[1]).map(([k, v]) => `${k} ${num(v)}`).join(' · ') || '—'}<br>${prevLabel()} 대비 ${noPrev ? '—' : `${d >= 0 ? '+' : '−'}${num(Math.abs(d))}`}`, { grand: true, go: '', info: '선택한 기간에 들어온 컴포즈 문의 수예요. 고객센터 · 원격팀 · OS 인입을 모두 세고, 같은 문의를 다시 적은 줄은 한 건으로 묶어요. 해피콜 등 발신(OB)은 빼요.' })
+    + tile('자체 해결', num(self.length), '건', `해결 ${num(selfDone.length)}건 · 진행 중 ${num(fin.open.length)}건`, { src: src('both'), c: 'var(--s1)', go: '자체 해결', info: '토스플레이스로 넘기지 않고 고객센터(CS) 안내 · 원격 안내 · 현장 방문으로 맡은 건이에요. 해결은 처리 완료된 건, 진행 중은 아직 완료 전인 건이에요.' })
+    + tile('토플 확인', num(tossRows.length), '건', `처리완료 ${num(tossDone)}건 · 확인중 ${num(tossRows.length - tossDone)}건`, { src: '<span class="src-tag src-toss">토플</span>', c: 'var(--purple)', go: '토플 확인', info: '토스플레이스에 확인을 넘긴 건이에요. 원격을 거쳤어도 마지막에 토스플레이스로 넘어갔으면 여기에만 세요. 처리완료는 확인 후 완료된 건, 확인중은 아직 끝나지 않은 건이에요.' })
+    + tile('해결 시간', fmtMin(median(solveMins)), '', solveMins.length ? `중앙값 · 평균 ${fmtMin(avg(solveMins))} · ${num(solveMins.length)}건 기준` : '이 기간 없음', { info: '자체 해결로 완료된 건의 접수부터 실제 처리 완료까지 걸린 시간이에요. 토스플레이스 확인 건은 빼요. 오래 걸린 몇 건에 흔들리지 않게 중앙값을 크게 보여 줘요.' }) + `</div>`;
   h += `<div class="grid2 grid-gap"><div class="card"><div class="card-head"><h3>일자별 처리 추이</h3><span class="hint">합계 ${num(s.total)}건${noPrev ? '' : ` · 이전 기간 ${num(p.total)}건`}</span></div>${dailyChart(rows)}</div>`
-    + `<div class="card"><div class="card-head"><h3>처리 흐름 ${src('both')}</h3></div>${methodStack(s)}<div class="flow-stats">
+    + `<div class="card"><div class="card-head"><h3>처리 흐름 ${src('both')}</h3></div>${methodStack({ mCs: selfDone.length, mRemote: 0, mVisit: 0, mToss: fin.toss.length, mEtc: fin.open.length }, { cs: '자체 해결(해결)', remote: '', visit: '', toss: '토플 확인', etc: '자체 해결(진행 중)' })}<div class="flow-stats">
         <div class="fstat"><span>CX 상담 → 원격 착수 <small>(원격 채널 담당 확인 이모지)</small></span><div><b>${fmtMin(s.avgWait)}</b><small>평균 · 중앙값 ${fmtMin(s.medWait)}</small></div></div>
         <div class="fstat"><span>원격 → 현장 방문</span><div><b>${s.avgVisitDays == null ? '—' : s.avgVisitDays.toFixed(1)}</b><small>일 평균</small></div></div>
         <div class="fstat"><span>토스플레이스 회신 <small>(${num(s.toss)}건 · 대기 ${num(s.tossOpen)})</small></span><div><b>${fmtMin(s.avgToss)}</b><small>평균 · 중앙값 ${fmtMin(s.medToss)}</small></div></div></div></div></div>`;
@@ -1887,8 +1905,9 @@ function recDetail(r, proc) {
 }
 function viewRecords() {
   const scoped = RECS.filter(r => inPeriod(r.at)), rows = recFilter('records', scoped, REC_TAGS), s = stats(rows), p = paged('records', rows, 30);
+  const back = NAV_BACK && NAV_BACK.view === 'overview' ? `<div style="margin-bottom:10px"><button class="btn" data-navback>← 전체현황으로 돌아가기</button></div>` : '';
   const n = v => rows.filter(r => r.inflow === v).length, other = rows.filter(r => !INFLOWS.includes(r.inflow)).length;
-  let h = `<div class="notice"><span class="k">인입</span><span class="t"><b>고객센터(상담 내역 · #컴포즈_tf) · 원격팀(현장 접수 포함) · OS</b>로 들어온 컴포즈 문의를 한 줄씩 모읍니다. 원격 AS · 현장 방문 기록은 같은 매장 + 가까운 시각의 상담 아래에 붙고, 상담이 없는 기록은 <b>원격</b> 건으로 따로 들어갑니다. 줄을 누르면 아래로 상세가 펼쳐집니다.</span></div>`;
+  let h = back + `<div class="notice"><span class="k">인입</span><span class="t"><b>고객센터(상담 내역 · #컴포즈_tf) · 원격팀(현장 접수 포함) · OS</b>로 들어온 컴포즈 문의를 한 줄씩 모읍니다. 원격 AS · 현장 방문 기록은 같은 매장 + 가까운 시각의 상담 아래에 붙고, 상담이 없는 기록은 <b>원격</b> 건으로 따로 들어갑니다. 줄을 누르면 아래로 상세가 펼쳐집니다.</span></div>`;
   h += `<div class="ov-tiles" style="--n:4">${tile('전체 인입', num(s.total), '건', `완료 ${num(s.done)} · 진행 중 ${num(s.open)}${other ? ` · 기타 채널 ${num(other)}` : ''}`, { grand: true })}${tile('고객센터', num(n('고객센터')), '건', '고객센터 상담 내역', { c: 'var(--accent)' })}${tile('원격팀', num(n('원격팀')), '건', '원격팀 · 현장이 직접 받은 건', { c: 'var(--orange)' })}${tile('OS', num(n('OS')), '건', 'OS팀이 올린 건', { c: 'var(--s2)' })}</div>`;
   h += `<div class="card"><div class="card-head"><h3>인입 목록</h3><span class="hint">${perLabel()} · 최신순 · ${p.page}/${p.pages}쪽</span></div>${filterBar('records', scoped, REC_TAGS, rows.length, { closeAll: true })}
     <div class="tbl-scroll"><table class="mcard">${REC_HEAD}<tbody>${p.rows.map(recRow).join('') || `<tr><td colspan="11">${empty('조건에 맞는 인입이 없습니다.')}</td></tr>`}</tbody></table></div>${pager('records', p)}</div>`;
@@ -2870,6 +2889,7 @@ host.addEventListener('click', e => {
   // 연결된 상담 링크: 인입 현황으로 옮겨 그 건만 검색하고 펼침(그 달로 기간을 맞춤)
   const gp = e.target.closest('[data-goproc]');
   if (gp) { const r = RECS.find(x => x.id === gp.dataset.goproc); if (r) { NAV_BACK = { view, per: JSON.parse(JSON.stringify(PER)), f: JSON.parse(JSON.stringify(F)), pg: Object.assign({}, PG), open: [...OPEN], y: window.scrollY }; perInit(); PER.mode = 'month'; PER.month = ymd(procAt(r)).slice(0, 7); view = 'process'; OPEN.clear(); F.process = { store: '', q: r.id, tags: {} }; PG.process = 1; OPEN.add('rec:' + r.id); syncSide(); render(); window.scrollTo(0, 0); } return; }
+  const og = e.target.closest('[data-ovgo]'); if (og && view === 'overview') { goOverviewCard(og.dataset.ovgo); return; }
   if (e.target.closest('[data-navback]')) { const b = NAV_BACK; NAV_BACK = null; if (b) { view = b.view; Object.assign(PER, b.per); Object.keys(F).forEach(k => delete F[k]); Object.assign(F, b.f); Object.assign(PG, b.pg); OPEN.clear(); b.open.forEach(k => OPEN.add(k)); syncSide(); render(); window.scrollTo(0, b.y); } return; }
   const go = e.target.closest('[data-gorec]');
   if (go) { const r = RECS.find(x => x.id === go.dataset.gorec); if (r) { perInit(); PER.mode = 'month'; PER.month = r.date.slice(0, 7); view = 'records'; flt('records').q = r.id; OPEN.add('rec:' + r.id); render(); window.scrollTo(0, 0); } return; }
