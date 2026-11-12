@@ -1149,6 +1149,9 @@ function buildModel(raw) {
   //   시트 처리 방식 · 원격 · 현장 기록과 관계없이 '토스플레이스 확인'. 뒤에 처리완료로 바뀌어도 그대로 남습니다.
   //   (2026-11-12) 슬랙 기록과 연결되지 않은 상담도: 시트 상담 내역의 '토스플레이스 문의 시각'(같은 이모지에서 옮겨 적은 값)이 있으면 같게 봅니다.
   RECS.forEach(r => { const sl = r.slack; if ((sl && (sl.tossAt || /^토플/.test(sl.status || ''))) || r.tossMarked) { if (r.method !== '토스플레이스 확인') r.methodRaw = r.method; r.method = '토스플레이스 확인'; r.methodGuess = false; r.methodByToss = true; } });
+  // 자체 해결 = 토스플레이스에 묻지 않고 끝낸 건만(2026-11-12 결정): 토플 글(고객센터-플레이스 · 협업채널)이 붙은 상담과,
+  //   토플 회신이 달린 협업채널 글은 AI 정리 · 시트 처리 방식과 관계없이 토스플레이스 확인(회신 없이 공유만 한 협업채널 글은 그대로)
+  RECS.forEach(r => { const T = r.toss; if (r.methodByToss || !T || !T.slack || (r.viaCollab && !T.done)) return; if (r.method !== '토스플레이스 확인') r.methodRaw = r.method; r.method = '토스플레이스 확인'; r.methodGuess = false; r.methodByToss = true; });
   RECS.forEach(r => { if (r.caseDone && r.status !== '완료') { r.statusRaw = r.status; r.status = '완료'; r.statusByCase = true; } });
   // 처리 방식 표시 이름(2026-11-11): 원격지원 · 현장지원(방문점검 · 현장 지원) · CS(고객센터에서 바로 해결) · 토스플레이스 확인 · 처리 중(원격 · 현장 기록 없이 진행 중)
   RECS.forEach(r => { const m = { '방문점검': '현장지원', '현장 지원': '현장지원', 'CS안내': 'CS', '미분류': r.status === '완료' ? 'CS' : '처리 중' }[r.method]; if (m) r.method = m; });
