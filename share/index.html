@@ -928,7 +928,7 @@ function buildModel(raw) {
       channel: iss && CHANNELS.includes(iss.channel) ? iss.channel : CHANNELS.includes(aiChannel) ? aiChannel : guessChannel([c.major, c.middle, c.minor, c.question].join(' ')),
       cat: [c.middle, c.minor].filter(Boolean).join(' · ') || c.major || '미분류', catAll: [c.major, c.middle, c.minor].filter(Boolean).join(' · '), io: ioOf(c.io), q: c.qTidy || c.question, a: c.qTidy ? (c.aTidy || '') : c.answer, qRaw: c.questionRaw || c.question, aRaw: c.answerRaw || c.answer, qFull: c.question, aFull: c.answer, tidy: !!c.qTidy, caseSum: c.caseSum || null, line: c.doneLine || '', caseKey: c.receipt || `${c.at}|${c.store}`, caseFix: c.caseFix || '', caseDone: !!(c.caseSum && /해결/.test(c.caseSum.state || '')) && c.caseFix !== '해제', route: c.route || '—', cx: c.cx || '',
       method: c.method || '—', status: c.status || '처리중', doneAt: done, minutes: validMinutes(c.minutes != null ? c.minutes : done ? (done - at) / 60000 : null),
-      toss: c.tossAsked ? { asked: P(c.tossAsked), done: P(c.tossDone) } : null, verify: c.verify || null, storeFrom: c.storeFrom || '', csOwner: c.owner || '', csAction: c.action || '', issue: iss || null, remote: null, visit: null };
+      toss: c.tossAsked ? { asked: P(c.tossAsked), done: P(c.tossDone) } : null, tossMarked: !!c.tossAsked, verify: c.verify || null, storeFrom: c.storeFrom || '', csOwner: c.owner || '', csAction: c.action || '', issue: iss || null, remote: null, visit: null };
   }).filter(Boolean);
   // 매장 직접 지정(데이터 점검 카드에서 저장, 수집 시트 '매장 지정' 탭): 매장을 확인하지 못한 건에만
   const STORE_FIX = raw.storeFix || {}, fixStore = list => list.forEach(r => { const fx = STORE_FIX[r.id]; if (!fx || r.skey) return; const st = ensure(fx, r.src || 'cs'); if (st) Object.assign(r, { store: st.name, skey: st.key, storeFixed: true }); });
@@ -1091,7 +1091,8 @@ function buildModel(raw) {
     if (!best) orphans.forEach(r => { if (r.viaCollab || !keys.includes(r.skey) || r.date !== ymd(asked) || r.at - asked > LINK.DUP_MIRROR_MIN * 60000 || (r.toss && r.toss.slack)) return; const d = Math.abs(asked - r.at); if (d < bestDiff) { best = r; bestDiff = d; } });
     const info = { asked, done: done || (t.status === '회신' ? asked : null), sum: t.sum || null, lastAt: P(t.lastAt), poster: t.poster || '', posterTeam: t.posterTeam || '', slack: { question: t.question, answer: t.answer, status: t.status, channel: t.channel || '고객센터-플레이스' } };
     if (best) { best.toss = Object.assign({}, best.toss || {}, info, { asked: (best.toss && best.toss.asked) || asked, done: (best.toss && best.toss.done) || info.done }); tossLinked++; }
-    else { const st = SM[keys[0]]; TOSS_ONLY.push(Object.assign({ id: `토플-${t.date.slice(2).replace(/-/g, '.')}-${pad(n + 1)}`, at: asked, date: ymd(asked), store: st ? st.name : t.store, skey: keys[0] || '' }, info)); }
+    // 매장이 없는 토플 글(본사 테스트 · 계약 · 본사 설치 등, 2026-11-12)은 매장 처리 건이 아니라 따로 세지 않습니다(상담에 붙은 건은 위에서 그대로)
+    else if (keys.length) { const st = SM[keys[0]]; TOSS_ONLY.push(Object.assign({ id: `토플-${t.date.slice(2).replace(/-/g, '.')}-${pad(n + 1)}`, at: asked, date: ymd(asked), store: st ? st.name : t.store, skey: keys[0] || '' }, info)); }
   });
   TOSS_ONLY.filter(t => t.slack && t.slack.channel === '협업채널' && t.skey).forEach(t => {
     t.asRec = true;
@@ -1139,7 +1140,8 @@ function buildModel(raw) {
   RECS.forEach(r => { if (!r.method || r.method === '—') { r.method = r.visit ? '방문점검' : r.remote ? '원격지원' : r.toss ? '토스플레이스 확인' : r.status === '완료' ? 'CS안내' : '미분류'; r.methodGuess = true; } });
   // 토플 확인 이모지(2026-11-12 결정): 슬랙 접수 글에 '토플 확인' 이모지가 한 번이라도 찍힌 건(토플 문의 시각 있음 · 상태 토플 …)은
   //   시트 처리 방식 · 원격 · 현장 기록과 관계없이 '토스플레이스 확인'. 뒤에 처리완료로 바뀌어도 그대로 남습니다.
-  RECS.forEach(r => { const sl = r.slack; if (sl && (sl.tossAt || /^토플/.test(sl.status || ''))) { if (r.method !== '토스플레이스 확인') r.methodRaw = r.method; r.method = '토스플레이스 확인'; r.methodGuess = false; r.methodByToss = true; } });
+  //   (2026-11-12) 슬랙 기록과 연결되지 않은 상담도: 시트 상담 내역의 '토스플레이스 문의 시각'(같은 이모지에서 옮겨 적은 값)이 있으면 같게 봅니다.
+  RECS.forEach(r => { const sl = r.slack; if ((sl && (sl.tossAt || /^토플/.test(sl.status || ''))) || r.tossMarked) { if (r.method !== '토스플레이스 확인') r.methodRaw = r.method; r.method = '토스플레이스 확인'; r.methodGuess = false; r.methodByToss = true; } });
   RECS.forEach(r => { if (r.caseDone && r.status !== '완료') { r.statusRaw = r.status; r.status = '완료'; r.statusByCase = true; } });
   // 처리 방식 표시 이름(2026-11-11): 원격지원 · 현장지원(방문점검 · 현장 지원) · CS(고객센터에서 바로 해결) · 토스플레이스 확인 · 처리 중(원격 · 현장 기록 없이 진행 중)
   RECS.forEach(r => { const m = { '방문점검': '현장지원', '현장 지원': '현장지원', 'CS안내': 'CS', '미분류': r.status === '완료' ? 'CS' : '처리 중' }[r.method]; if (m) r.method = m; });
