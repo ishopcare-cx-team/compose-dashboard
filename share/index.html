@@ -809,6 +809,10 @@ const REMOTE_FIXES = {
   '2026-10-08 06:29:55': { recheck: true, why: '10/7 성수코리아IT점 건 원격팀 재점검(옵션별 출력 설정)' },
   '2026-10-08 06:30:06': { recheck: true, why: '10/7 수원인계점 건 원격팀 재점검(옵션별 출력 설정)' }
 };
+// 토플 글 개별 보정(토스 문의 글의 'YYYY-MM-DD HH:mm' 기준) · exclude: 대시보드에서 뺌
+const TOSS_FIXES = {
+  '2026-11-02 18:35': { exclude: true, why: '11/2 16:01 성수코리아IT점 원격 → 현장 태블릿 교체 건 뒤 토플에 이상 여부 확인을 요청한 글(같은 건, 매장명이 성수IT점으로 적혀 따로 잡힘)' }
+};
 
 // 지점 장비 핵심(서버 AI 정리): skey → 1~2문장
 let EQCORE = {};
@@ -1057,6 +1061,8 @@ function buildModel(raw) {
     if (v.kind === '설치' && !st.installed) st.installed = ymd(vd);
     // 설치 · 기타 방문은 상담에 붙이지 않고 처리 내역(현장방문)에만 한 줄씩 넣습니다.
     if (!fromOk(vd)) return;   // 시작일 전 방문은 장비 이력(보유 장비 계산)에만
+    // 설치 방문(2026-11-12 결정)은 설치 팀이 따로 관리하는 일정이라 처리 내역에 넣지 않습니다. 장비 이력 · 보유 장비 · 설치일에는 위에서 그대로 씁니다.
+    if (v.kind === '설치') return;
     if (v.kind !== 'AS') { VISIT_ONLY.push({ id: `${ymd(vd).slice(2).replace(/-/g, '.')}-V${pad(VISIT_ONLY.length + 1)}`, at: vd, date: ymd(vd), store: st.name, skey: st.key, kind: v.kind || '기타', type, equip: v.equip, by: v.assignee, pending: v.status !== 'done' }); return; }
     visitAs++;
     const end = new Date(vd); end.setHours(23, 59);
@@ -1083,6 +1089,7 @@ function buildModel(raw) {
   let tossLinked = 0;
   (raw.toss || []).forEach((t, n) => {
     const asked = P(`${t.date} ${t.time}`), done = P(t.answeredAt), keys = String(t.store || '').split(/,\s*/).map(skey).filter(Boolean);
+    if ((TOSS_FIXES[`${t.date} ${t.time}`.slice(0, 16)] || {}).exclude) return;
     if (!asked || !fromOk(asked) || STORE_EXCLUDE.test(t.store || '') || isTestText(t.question || '') || (!keys.length && !composeText(t.question))) return;
     let best = RECS.find(r => r.verify && r.verify.state === '일치' && r.verify.channel === '#협업채널_컴포즈' && String(r.verify.at).slice(0, 16) === `${t.date} ${t.time}`.slice(0, 16) && !(r.toss && r.toss.slack)) || null, bestDiff = best ? -1 : Infinity;
     // 상담보다 앞선 날짜의 토플 글은 붙이지 않습니다(2026-11-12: 전날 다른 건이 같은 매장이라 붙던 문제)
