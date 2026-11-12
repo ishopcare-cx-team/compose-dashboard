@@ -890,6 +890,8 @@ function buildModel(raw) {
   EQCORE = {}; Object.entries(raw.eqCore || {}).forEach(([k, v]) => { if (v) EQCORE[skey(k)] = v; });
   HCLOG = (raw.happyLog || []).filter(h => !STORE_EXCLUDE.test(h.store || '')).map((h, n) => Object.assign({}, h, { key: `hl:${n}`, t: P(h.at) }))
     .sort((a, b) => (b.t || 0) - (a.t || 0));
+  // 재통화 뒤에 같은 지점 · 같은 유형 통화가 다시 있으면 이미 이어서 처리한 것이라 후속 필요가 아닙니다(2026-11-12 결정).
+  HCLOG.forEach(x => { if (x.followup && x.t && HCLOG.some(y => y !== x && y.type === x.type && y.t > x.t && skey(y.store) === skey(x.store))) x.followup = false; });
   HAPPY = (raw.happy || []).filter(h => !STORE_EXCLUDE.test(h.store || '')).map((h, n) => Object.assign({}, h, { type: surveyName, key: `hc:${n}`, answers: HCQ.map((q, i) => { const a = (h.answers || [])[i]; return a && typeof a === 'object' ? a : { result: a || '', answer: '' }; }) }));
 
   // 1) CS 상담 내역 = 허브
@@ -2121,15 +2123,15 @@ function viewHappyLog(t) {
     { key: 'req', label: '요청처', get: x => x.requester },
     share ? null : { key: 'agent', label: '상담원', get: x => x.agent }
   ].filter(Boolean);
-  // 통화 기록 표는 시간순(오래된 통화부터, 시트와 같은 순서)
-  const rows = applyFilter(fk, base, { store: x => x.store, text: x => [x.requester, x.contact, x.result, x.question, x.answer, x.callNo].join(' '), tags }).slice().sort((a, b) => (a.t || 0) - (b.t || 0));
+  // 통화 기록 표는 최신순(인입 현황 등 다른 목록과 같음)
+  const rows = applyFilter(fk, base, { store: x => x.store, text: x => [x.requester, x.contact, x.result, x.question, x.answer, x.callNo].join(' '), tags }).slice().sort((a, b) => (b.t || 0) - (a.t || 0));
   const p = paged(fk, rows, 30), byRes = countBy(rows, x => x.result || '결과 없음'), byReq = countBy(rows, x => x.requester || '미기재');
-  let h = `<div class="ov-tiles" style="--n:4">${tile(`${esc(t.name)} 통화`, num(base.length), '건', '전체 기간', { grand: true })}${tile('이번 달', num(base.filter(x => x.t && x.t >= ms).length), '건', `${TODAY.getMonth() + 1}월`)}${tile('후속 필요', num(base.filter(x => x.followup).length), '건', '재통화(2차 부재는 종결)', { c: 'var(--orange)' })}${tile('매장', num(new Set(base.map(x => skey(x.store))).size), '곳', '통화한 매장')}</div>`;
+  let h = `<div class="ov-tiles" style="--n:4">${tile(`${esc(t.name)} 통화`, num(base.length), '건', '전체 기간', { grand: true })}${tile('이번 달', num(base.filter(x => x.t && x.t >= ms).length), '건', `${TODAY.getMonth() + 1}월`)}${tile('안내 완료', num(base.filter(x => /^안내\s*완료$/.test(x.result || '')).length), '건', '결과가 안내 완료인 통화', { c: 'var(--green)' })}${tile('매장', num(new Set(base.map(x => skey(x.store))).size), '곳', '통화한 매장')}</div>`;
   if (base.length) h += `<div class="grid2 even grid-gap"><div class="card" style="margin:0"><div class="card-head"><h3>결과별</h3><span class="hint">검색 · 태그 조건 기준</span></div>${hbars(byRes, byRes.length ? byRes[0][1] : 0)}</div>
     <div class="card" style="margin:0"><div class="card-head"><h3>요청처별</h3></div>${hbars(byReq, byReq.length ? byReq[0][1] : 0)}</div></div>`;
   // 표 칸(내부용 · 공유용 같음): 일시 · 매장 · 요청처 · 연락 내용 · 결과. 내부용은 줄을 누르면 상담원 · 문의 · 답변 · 상담번호
   const cols = 5;
-  h += `<div class="card"><div class="card-head"><h3>${esc(t.name)} 통화 기록 ${src('cs')}</h3><span class="hint">시간순(오래된 통화부터)${share ? '' : ' · 줄을 누르면 문의 · 답변이 펼쳐짐'}</span></div>${filterBar(fk, base, tags, rows.length)}
+  h += `<div class="card"><div class="card-head"><h3>${esc(t.name)} 통화 기록 ${src('cs')}</h3><span class="hint">최신순${share ? '' : ' · 줄을 누르면 문의 · 답변이 펼쳐짐'}</span></div>${filterBar(fk, base, tags, rows.length)}
     <div class="tbl-scroll"><table class="mcard"><thead><tr><th>일시</th><th>매장</th><th>요청처</th><th style="width:34%">연락 내용</th><th>결과</th></tr></thead><tbody>
     ${p.rows.map(x => { const cells = `<td style="white-space:nowrap">${esc(String(x.at || '').slice(0, 16) || '—')}</td><td><b>${esc(x.store)}</b>${share ? '' : caret(x.key)}</td><td>${esc(x.requester || '—')}</td><td>${esc(x.contact || '—')}</td><td>${hcResBadge(x.result, x.followup)}</td>`;
       return share ? `<tr>${cells}</tr>` : xrow(x.key, cells, cols, () => `<div class="vp" style="--n:2">${infoBox([['콜라비 상담번호', x.callNo], ['상담원', x.agent], ['요청처', x.requester], ['등록 일시', String(x.registeredAt || '').slice(0, 16)]])}${panel('asis', '?', '문의 내용', x.question)}${panel('act', '✓', '답변 내용', x.answer)}</div>`); }).join('')
@@ -2526,7 +2528,8 @@ function updCall(fn, arg) {
 }
 // 쓰던 글은 다시 그리기(자동 새로고침 등) 전에 담아 두었다가 그대로 되살립니다.
 function captureDraft() {
-  const f = host.querySelector('.upd-form'); if (!f) return;
+  // 업데이트 글쓰기 칸만(지점 비고 입력칸도 같은 모양 클래스를 써서, 제목 칸이 있는 것으로 고릅니다)
+  const f = [...host.querySelectorAll('.upd-form')].find(x => x.querySelector('[name=kind]')); if (!f) return;
   UPD_DRAFT = { kind: f.querySelector('[name=kind]').value, title: f.querySelector('[name=title]').value, body: f.querySelector('[name=body]').value, link: f.querySelector('[name=link]').value, pinned: f.querySelector('[name=pinned]').checked };
 }
 // 고른 · 끌어 놓은 · 붙여 넣은 파일을 읽어 첨부 목록에 넣습니다(10MB · 10개 한도).
