@@ -855,6 +855,8 @@ function guessChannel(text) {
 /* ================================================================ 모델 만들기 */
 // 사람 이름 통일: '동욱' → '김동욱'(원격팀 명단), 괄호 뒤 문구 제거
 let PEOPLE = {}, OC_NAMES = new Set();
+// 워크플로 글 끝의 요청자 표시('_ @이름(Offline Care_원격)' · 정리문 '(이름, Offline Care 원격)')에서 팀: 원격 · 설치 · 현장 · FC(Offline Care) → 원격팀
+const requesterTeamOf = text => { const m = String(text || '').match(/[(（]([^()（）]{2,60})[)）]\s*$/); if (!m) return ''; const x = m[1]; return teamOf(x) || (/offline\s*care|설치|현장|(^|[\s_,])FC/i.test(x) ? 'OC' : /고객센터|상담/.test(x) ? 'CX' : ''); };
 const teamOf = t => { t = String(t || ''); return /offline\s*sales|오프라인|(^|[\s_\-(])OS([\s_\-)]|$)/i.test(t) ? 'OS' : /(^|[\s_\-(])CX([\s_\-)]|$)/i.test(t) ? 'CX' : /(^|[\s_\-(])OC([\s_\-)]|$)|원격/i.test(t) ? 'OC' : ''; };
 function fullName(n) {
   const t = String(n || '').replace(/\s*[(（\[].*$/, '').replace(/[)）\]]/g, '').trim();
@@ -919,7 +921,8 @@ function buildModel(raw) {
     const viaPhone = sl && (/법인폰/.test([sl.intake, c.route, c.question].join(' ')) || sl.source === '워크플로');
     // 인입 경로: 상담 인입 경로(T열)가 원격 · 현장이면 원격팀. 슬랙 출처가 콜라비 연동(CS Compose Bot)이면 고객센터.
     // 수기 · 워크플로 업로드는 올린 사람의 팀(고객센터 → 고객센터, 원격팀 · 현장 → 원격팀, OS → OS). 팀을 모르면 고객센터
-    const postTeam = sl && sl.source && sl.source !== '콜라비' && sl.source !== '시트만' ? (/현장/.test(sl.team || '') ? 'OC' : teamOf(sl.team)) : '';
+    // 협업채널 워크플로 글(2026-11-12): 서버가 글 끝 요청자 표시 '@이름(팀)'의 팀 글자를 올린 팀으로 보냄(Offline Care_원격 · FC Ops · 설치 → 원격팀)
+    const postTeam = sl && sl.source && sl.source !== '콜라비' && sl.source !== '시트만' ? (/현장/.test(sl.team || '') ? 'OC' : teamOf(sl.team) || (sl.source === '협업채널' ? requesterTeamOf(sl.team ? `(${sl.team})` : c.questionRaw || c.question) : '')) : '';
     const inflow = /현장|원격/.test(c.route || '') || postTeam === 'OC' ? '원격팀' : postTeam === 'OS' ? 'OS' : '고객센터';
     return { id: c.receipt || (c.slackOnly ? `${c.at.slice(2, 10).replace(/-/g, '.')}-S${c.at.slice(11, 16).replace(':', '')}` : `CS-${c.at}`), src: 'cs', inflow, slackOnly: !!c.slackOnly, dup: !!c.dup, at, date: ymd(at), store: st ? st.name : (c.verify ? '매장 확인 중' : (c.store || '—')), skey: st ? st.key : '', slack: sl,
       channel: iss && CHANNELS.includes(iss.channel) ? iss.channel : CHANNELS.includes(aiChannel) ? aiChannel : guessChannel([c.major, c.middle, c.minor, c.question].join(' ')),
@@ -1082,7 +1085,8 @@ function buildModel(raw) {
     const asked = P(`${t.date} ${t.time}`), done = P(t.answeredAt), keys = String(t.store || '').split(/,\s*/).map(skey).filter(Boolean);
     if (!asked || !fromOk(asked) || STORE_EXCLUDE.test(t.store || '') || isTestText(t.question || '') || (!keys.length && !composeText(t.question))) return;
     let best = RECS.find(r => r.verify && r.verify.state === '일치' && r.verify.channel === '#협업채널_컴포즈' && String(r.verify.at).slice(0, 16) === `${t.date} ${t.time}`.slice(0, 16) && !(r.toss && r.toss.slack)) || null, bestDiff = best ? -1 : Infinity;
-    if (!best) RECS.forEach(r => { if (r.src !== 'cs' || !keys.includes(r.skey)) return; const d = Math.abs(asked - r.at); if (d <= 864e5 && d < bestDiff && !(r.toss && r.toss.slack)) { best = r; bestDiff = d; } });
+    // 상담보다 앞선 날짜의 토플 글은 붙이지 않습니다(2026-11-12: 전날 다른 건이 같은 매장이라 붙던 문제)
+    if (!best) RECS.forEach(r => { if (r.src !== 'cs' || !keys.includes(r.skey) || ymd(asked) < r.date) return; const d = Math.abs(asked - r.at); if (d <= 864e5 && d < bestDiff && !(r.toss && r.toss.slack)) { best = r; bestDiff = d; } });
     // 시트 상담이 없으면: 같은 매장 · 같은 날 그 전에 들어온 콜(원격 요청 기록)에 붙입니다. 토스플레이스 이관 글은 콜이 아니라 그 콜의 처리 현황입니다.
     if (!best) orphans.forEach(r => { if (r.viaCollab || !keys.includes(r.skey) || r.date !== ymd(asked) || r.at - asked > LINK.DUP_MIRROR_MIN * 60000 || (r.toss && r.toss.slack)) return; const d = Math.abs(asked - r.at); if (d < bestDiff) { best = r; bestDiff = d; } });
     const info = { asked, done: done || (t.status === '회신' ? asked : null), sum: t.sum || null, lastAt: P(t.lastAt), poster: t.poster || '', posterTeam: t.posterTeam || '', slack: { question: t.question, answer: t.answer, status: t.status, channel: t.channel || '고객센터-플레이스' } };
