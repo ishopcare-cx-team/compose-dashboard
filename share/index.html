@@ -124,6 +124,14 @@
   .ov-tiles[style*="--n:7"] .ov-tile .ov-val{font-size:24px; margin-top:7px; white-space:nowrap}
   .ov-tiles[style*="--n:7"] .ov-tile .ov-val small{font-size:12.5px}
   .ov-tiles[style*="--n:7"] .ov-tile .ov-sub{font-size:11px; margin-top:6px; line-height:1.5; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .ov-i{display:inline-flex; align-items:center; justify-content:center; width:15px; height:15px; border-radius:50%; border:1px solid currentColor; font-size:10px; font-weight:800; font-style:normal; line-height:1; opacity:.65; cursor:help; flex:0 0 auto}
+  .ov-i:hover{opacity:1}
+  .ov-tile .ov-sub.one{white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:12px; letter-spacing:-.02em}
+  #tip.wrap{white-space:normal; max-width:280px; line-height:1.55; font-weight:500}
+  #navTip{position:fixed; z-index:60; width:260px; padding:12px 14px; border-radius:12px; background:var(--canvas); color:var(--ink); border:1px solid var(--line-soft); box-shadow:var(--shadow); font-size:12.5px; line-height:1.6; pointer-events:none; opacity:0; transition:opacity .12s}
+  #navTip b{display:block; font-size:13.5px; margin-bottom:4px}
+  #navTip.on{opacity:1}
+  @media (hover:none){ #navTip{display:none} }
   .ov-tile .ov-val{font-size:34px; font-weight:800; letter-spacing:-.03em; margin-top:9px; line-height:1}
   .ov-tile .ov-val small{font-size:15px; font-weight:600; color:var(--gray2); margin-left:3px}
   .ov-tile .ov-sub{font-size:12.5px; font-weight:600; margin-top:7px; color:var(--gray2)}
@@ -596,6 +604,7 @@
 </main>
 </div>
 <div id="tip"></div>
+<div id="navTip" role="tooltip"></div>
 <div id="lightbox" class="lightbox" hidden role="dialog" aria-label="이미지 크게 보기"><div class="lb-bar"><span class="lb-name"></span><span class="lb-tools"><button class="btn sm" data-lb="out">－</button><span class="lb-zoom">맞춤</span><button class="btn sm" data-lb="in">＋</button><button class="btn sm" data-lb="fit">화면 맞춤</button><button class="btn sm" data-lb="full">크게</button><button class="btn sm lb-dl">내려받기</button><button class="btn sm" data-lb="close">닫기 ✕</button></span></div><div class="lb-stage"><img alt=""></div></div>
 
 <script>
@@ -1490,7 +1499,7 @@ const statusBadge = s => `<span class="badge ${/^완료/.test(s) ? 'b-done' : /^
 const methodBadge = m => `<span class="badge b-gray ${m === 'CS' ? 'm-cs' : m === '원격지원' ? 'm-remote' : m === '현장지원' ? 'm-visit' : ''}">${esc(m)}</span>`;
 const inflowTag = v => `<span class="tag ${v === '고객센터' ? 'in-cs' : v === '원격팀' ? 'in-oc' : v === '현장' ? 'in-vs' : v === 'OS' ? 'in-os' : 'in-etc'}">${esc(v || '—')}</span>`;
 const stage = r => r.status === '완료' ? '완료' : r.toss && !r.toss.done ? '토스플레이스 확인중' : r.visit && r.visit.pending ? '방문 예정' : r.remote && !r.remote.start ? '원격 대기' : r.remote ? '원격 진행 중' : '상담 처리중';
-const tile = (name, val, unit, sub, opt = {}) => `<div class="ov-tile ${opt.grand ? 'grand' : ''}" style="${opt.c ? '--c:' + opt.c : ''}"><div class="ov-name">${name}${opt.src ? `<span style="margin-left:auto">${opt.src}</span>` : ''}</div><div class="ov-val">${val}<small>${unit}</small></div><div class="ov-sub">${sub}</div></div>`;
+const tile = (name, val, unit, sub, opt = {}) => `<div class="ov-tile ${opt.grand ? 'grand' : ''}" style="${opt.c ? '--c:' + opt.c : ''}"><div class="ov-name">${name}${opt.info ? `<i class="ov-i" data-tip="${esc(opt.info)}" aria-label="${esc(opt.info)}">i</i>` : ''}${opt.src ? `<span style="margin-left:auto">${opt.src}</span>` : ''}</div><div class="ov-val">${val}<small>${unit}</small></div><div class="ov-sub${opt.one ? ' one' : ''}">${sub}</div></div>`;
 const hbars = (rows, max) => rows.map(([k, v, extra]) => `<div class="hbar"><div class="nm" title="${esc(k)}">${esc(k)}</div><div class="tr"><div class="fl" style="width:${max ? v / max * 100 : 0}%${v ? '' : ';min-width:0'}"></div></div><div class="v"><b>${num(v)}</b>건${extra ? ' · ' + extra : ''}</div></div>`).join('');
 const countBy = (arr, f) => { const m = {}; arr.forEach(x => { const k = f(x); if (k != null && k !== '') m[k] = (m[k] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1]); };
 const delta = (v, p) => { const d = v - p; return d > 0 ? `<span class="delta up">▲ ${num(d)}</span>` : d < 0 ? `<span class="delta down">▼ ${num(-d)}</span>` : '<span class="delta flat">–</span>'; };
@@ -1618,22 +1627,18 @@ function viewOverviewBase() {
   const tags = REC_TAGS.filter(t => ['inflow', 'channel', 'method'].includes(t.key));
   const base = recFilter('overview', RECS, tags), rows = base.filter(r => inPeriod(r.at)), prev = base.filter(r => inPrevPeriod(r.at)), s = stats(rows), p = stats(prev);
   const sq = skey(flt('overview').store), byStore = x => !sq || skey(x.store).includes(sq) || (x.affectedKeys || []).some(k => k.includes(sq));
-  const openIssues = ISSUES.filter(i => inPeriod(P(i.date)) && byStore(i) && !/^완료/.test(i.status)).length, d = s.total - p.total, noPrev = prevPeriodRange()[1] <= P(DATA_FROM);
-  // 처리 내역과 같은 목록으로 셈(지점 검색을 쓰면 그 매장만)
-  const PL = procList().filter(x => inPeriod(x.at) && byStore(x)), pc = n => PL.filter(x => x.proc === n);
-  const pRemote = pc('원격AS'), pVisit = pc('현장방문');
-  const vKind = x => x.visit ? (x.visit.kind === '설치' ? '설치' : 'AS') : x.rec && x.rec.visit ? 'AS' : '현장 지원';
-  const vSum = ['AS', '설치', '현장 지원'].map(k => [k, pVisit.filter(x => vKind(x) === k).length]).filter(x => x[1]).map(([k, n]) => `${k} ${num(n)}`).join(' · ');
+  const d = s.total - p.total, noPrev = prevPeriodRange()[1] <= P(DATA_FROM);
+  // 토플 확인 · 현장 방문 카드는 처리 방식 기준(2026-11-12): 전체 접수 안의 건만, 한 건은 한 카드에만 셉니다(처리 흐름 막대와 같은 기준).
+  const tossRows = rows.filter(r => r.method === '토스플레이스 확인'), tossOpen = tossRows.filter(r => !(r.toss && r.toss.done)).length, tossAvg = avg(tossRows.map(tossWait).filter(v => v != null));
+  const visitRows = rows.filter(r => r.method === '현장지원'), visitPending = visitRows.filter(r => r.visit && r.visit.pending).length;
   let h = filterBar('overview', RECS.filter(r => inPeriod(r.at)), tags, rows.length);
   // 공유용도 내부용과 같은 카드 · 차트 · 문구를 씁니다(데이터는 이름 가림 · 정제 문장). 담당자별 처리처럼 사람 이름이 나오는 운영 카드만 내부용에서만.
-  h += `<div class="ov-tiles" style="--n:7">`
-    + tile('전체 접수', num(s.total), '건', `${INFLOWS.map(k => [k, rows.filter(r => r.inflow === k).length]).filter(x => x[1]).map(([k, v]) => `${k} ${num(v)}`).join(' · ') || '—'}<br>${prevLabel()} 대비 ${noPrev ? '—' : `${d >= 0 ? '+' : '−'}${num(Math.abs(d))}`}`, { grand: true })
-    + tile('평균 해결 시간', fmtMin(s.avgMin), '', `중앙값 ${fmtMin(s.medMin)}<br>처리 완료 · 방문·토플 제외`)
-    + tile('상담 중 해결', s.mCs ? num(s.mCs) : '—', s.mCs ? '건' : '', s.mCs ? `전체의 ${(s.mCs / s.total * 100).toFixed(0)}%` : '이 기간 없음', { src: src('cs'), c: 'var(--s1)' })
-    + tile('원격 처리', num(pRemote.length), '건', `상담 → 원격 착수<br>평균 ${fmtMin(s.avgWait)} · 중앙값 ${fmtMin(s.medWait)}`, { src: src('both'), c: 'var(--s2)' })
-    + tile('토플 이관', num(s.toss), '건', `평균 ${fmtMin(s.avgToss)}${s.tossOpen ? ` · 대기 ${num(s.tossOpen)}` : ''}<br>중앙값 ${fmtMin(s.medToss)}`, { src: '<span class="src-tag src-toss">토플</span>', c: 'var(--purple)' })
-    + tile('현장 방문', num(pVisit.length), '건', vSum || '이 기간 없음', { src: src('oc'), c: 'var(--s3)' })
-    + tile('미해결 이슈', num(openIssues), '건', '통합 이슈 · 이 기간 발생', { src: '<span class="src-tag src-toss">토플</span>', c: 'var(--red)' }) + `</div>`;
+  // 카드 4칸(2026-11-12): 원격 처리 · 상담 중 해결 · 미해결 이슈는 다른 카드와 겹치거나 상담이 아닌 숫자라 뺐습니다(처리 흐름 · 통합 이슈에서 봄).
+  h += `<div class="ov-tiles" style="--n:4">`
+    + tile('전체 접수', num(s.total), '건', `${INFLOWS.map(k => [k, rows.filter(r => r.inflow === k).length]).filter(x => x[1]).map(([k, v]) => `${k} ${num(v)}`).join(' · ') || '—'}<br>${prevLabel()} 대비 ${noPrev ? '—' : `${d >= 0 ? '+' : '−'}${num(Math.abs(d))}`}`, { grand: true, info: '선택한 기간에 들어온 컴포즈 문의 수예요. 고객센터 · 원격팀 · OS 인입을 모두 세고, 같은 문의를 다시 적은 줄은 한 건으로 묶어요. 해피콜 등 발신(OB)은 빼요.' })
+    + tile('평균 해결 시간', fmtMin(s.avgMin), '', `중앙값 ${fmtMin(s.medMin)}<br>처리 완료 · 방문·토플 제외`, { info: '완료된 건의 접수부터 처리 완료까지 걸린 시간 평균이에요. 현장 방문 · 토스플레이스 확인 건은 기다리는 시간이 길어 빼고 계산해요.' })
+    + tile('토플 확인', num(tossRows.length), '건', `평균 ${fmtMin(tossAvg)} · 대기 ${num(tossOpen)}건 · 완료 ${num(tossRows.length - tossOpen)}건`, { src: '<span class="src-tag src-toss">토플</span>', c: 'var(--purple)', one: true, info: '전체 접수 중 처리 방식이 토스플레이스 확인인 건이에요(토플 확인 이모지 · 협업채널 VOC 접수). 평균은 요청부터 토스플레이스 회신까지, 대기는 아직 회신이 없는 건이에요.' })
+    + tile('현장 방문', num(visitRows.length), '건', visitRows.length ? `방문 완료 ${num(visitRows.length - visitPending)}건 · 예정 ${num(visitPending)}건` : '이 기간 없음', { src: src('oc'), c: 'var(--s3)', info: '전체 접수 중 처리 방식이 현장지원인 건이에요(원격팀 기록의 현장 방문 AS). 신규 설치 방문은 문의가 아니라 세지 않아요.' }) + `</div>`;
   h += `<div class="grid2 grid-gap"><div class="card"><div class="card-head"><h3>일자별 처리 추이</h3><span class="hint">합계 ${num(s.total)}건${noPrev ? '' : ` · 이전 기간 ${num(p.total)}건`}</span></div>${dailyChart(rows)}</div>`
     + `<div class="card"><div class="card-head"><h3>처리 흐름 ${src('both')}</h3></div>${methodStack(s)}<div class="flow-stats">
         <div class="fstat"><span>CX 상담 → 원격 착수 <small>(원격 채널 담당 확인 이모지)</small></span><div><b>${fmtMin(s.avgWait)}</b><small>평균 · 중앙값 ${fmtMin(s.medWait)}</small></div></div>
@@ -3068,7 +3073,46 @@ function legacyGuideAdd(k, g, inside) {
   afterGuide();
 }
 const tip = document.getElementById('tip');
-document.addEventListener('mousemove', e => { const g = e.target.closest && e.target.closest('[data-tip]'); document.querySelectorAll('.chart g.on').forEach(x => x !== g && x.classList.remove('on')); if (!g) { tip.style.opacity = 0; return; } if (g.tagName === 'g') g.classList.add('on'); tip.innerHTML = g.dataset.tip; tip.style.opacity = 1; tip.style.left = Math.min(window.innerWidth - tip.offsetWidth - 8, e.clientX + 14) + 'px'; tip.style.top = (e.clientY - 44) + 'px'; });
+// 사이드바 항목 설명(2026-11-12): 어떤 데이터를 담고 있는지 3줄 안으로. 키 = data-v, 묶음 버튼은 'p:' + data-v
+const NAV_DESC = {
+  overview: ['전체현황', '선택한 기간의 인입 · 처리 현황 요약', 'CS 상담 내역 + 원격팀 기록 + 토스플레이스 문의', '카드 · 일자별 추이 · 처리 흐름'],
+  'p:records': ['상담 내역', '고객센터 · 원격팀 · OS로 들어온 문의 목록', '인입 현황 · 처리 내역 · 통합 이슈 · VOC'],
+  records: ['인입 현황', '들어온 컴포즈 문의 전체(건별 한 줄)', 'CS 상담 내역 시트 + 슬랙 접수 + 원격팀 자체 인입', '같은 문의는 한 건으로 묶고 발신(OB)은 제외'],
+  process: ['처리 내역', '건별 처리 과정과 걸린 시간', '원격 AS · 현장 방문 · 토스플레이스 확인', '원격팀 슬랙 기록 · 토스 문의 회신 기준'],
+  issues: ['통합 이슈', '매장별 설정 오류 · 전체 오류', 'CS 리포트 시트 \'통합 이슈\' 탭', '미해결 건은 전체현황 카드에도 표시'],
+  voc: ['VOC', '매장의 기능 개선 요청', 'CS 리포트 시트 \'매장 VOC\' 탭', '현상 · 요청 · 조치 순으로'],
+  cands: ['슬랙 후보', '협업채널 · 원격 긴급 글에서 찾은 이슈 · VOC · 공지 후보', '확인 후 통합 이슈 · VOC로 등록', '내부용'],
+  'p:happy': ['해피콜', '매장에 건 해피콜 현황', '신규 설치 · 교육 및 기타(콜라비 컴포즈OB)'],
+  happy: ['해피콜 전체', '유형별 해피콜 건수 · 최근 통화', '신규 설치는 매장 수, 그 밖은 통화 수'],
+  hc_new: ['신규 설치', '설치 매장 사후 확인 통화', 'CS 리포트 시트 \'해피콜\' 탭(매장 1곳당 1행)', '질문별 결과와 매장 답변'],
+  hc_edu: ['교육 및 기타', '기능 교육 · 매장 요청 전달 통화', '\'해피콜(교육 및 기타)\' 탭(통화 1건당 1행)', '1차 부재는 빼고 최신순'],
+  hc_as: ['A/S 사후', '조치 후 재발 확인 통화', '추후 운영 · 시트 탭이 생기면 통화 기록이 보임'],
+  hc_regular: ['정기 점검', '분기 · 반기 장비 점검 통화', '추후 운영 · 시트 탭이 생기면 통화 기록이 보임'],
+  hc_promo: ['프로모션·신메뉴', '행사 전 메뉴 · 가격 반영 확인 통화', '추후 운영 · 시트 탭이 생기면 통화 기록이 보임'],
+  equip: ['장비 조회', '지점별 보유 장비와 장비 점검 이력', '원격팀 장비 기록 + CS 사전체크', '장비 점검 건만, 위에 핵심 요약'],
+  stores: ['지점별', '매장 한 곳의 상담 · 원격 · 장비 · 해피콜', '처리 타임라인과 미해결 이슈', '지점을 누르면 상세가 펼쳐짐'],
+  report: ['월간 보고서', '토스플레이스 보고용 월별 집계', '인쇄 · PDF로 저장'],
+  'p:principles': ['상담 가이드', 'CX 응대 기준과 스크립트', '응대 원칙 · 장애 대응 · 해피콜 스크립트 · 사전체크 매뉴얼'],
+  principles: ['응대 원칙', 'CX 응대 기준과 말투', '화면에서 고치면 업데이트 시트에 저장'],
+  incident: ['장애 대응', '알림 문구별 조치 순서', '화면에서 고치면 업데이트 시트에 저장'],
+  happycall: ['해피콜 스크립트', '유형별 응대 스크립트와 부재 문자', '콜라비로 해피콜 거는 순서'],
+  precheck: ['사전체크 매뉴얼', '설치 전 장비 설정 체크 항목', '설치 리스트 시트 \'매장 리스트\' 탭 기준'],
+  posmanual: ['포스 매뉴얼', '토스플레이스 × 컴포즈 간편 매뉴얼', '기능별 사용법'],
+  storeops: ['지점 운영 현황', '지점별 운영시간 · 장비 · 프린터 설정', '노션 \'각 지점별 운영\' 기준'],
+  updates: ['업데이트', '배포 · 공지 기록과 고정 공지', '지점별 매니저 비고(업데이트 시트)']
+};
+const navTip = document.getElementById('navTip');
+document.getElementById('side').addEventListener('mouseover', e => {
+  const b = e.target.closest('.view-tab'), d = b && NAV_DESC[(b.classList.contains('parent') ? 'p:' : '') + b.dataset.v];
+  if (!d || !matchMedia('(hover:hover)').matches) { navTip.classList.remove('on'); return; }
+  navTip.innerHTML = `<b>${esc(d[0])}</b>${d.slice(1).map(esc).join('<br>')}`;
+  const r = b.getBoundingClientRect();
+  navTip.style.left = (r.right + 10) + 'px'; navTip.style.top = Math.max(8, Math.min(window.innerHeight - navTip.offsetHeight - 8, r.top)) + 'px';
+  navTip.classList.add('on');
+});
+document.getElementById('side').addEventListener('mouseleave', () => navTip.classList.remove('on'));
+document.getElementById('side').addEventListener('click', () => navTip.classList.remove('on'));
+document.addEventListener('mousemove', e => { const g = e.target.closest && e.target.closest('[data-tip]'); document.querySelectorAll('.chart g.on').forEach(x => x !== g && x.classList.remove('on')); if (!g) { tip.style.opacity = 0; return; } if (g.tagName === 'g') g.classList.add('on'); tip.classList.toggle('wrap', g.classList.contains('ov-i')); tip.innerHTML = g.dataset.tip; tip.style.opacity = 1; tip.style.left = Math.min(window.innerWidth - tip.offsetWidth - 8, e.clientX + 14) + 'px'; tip.style.top = (e.clientY - 44) + 'px'; });
 const themeBtn = document.getElementById('themeBtn');
 const isDark = () => { const t = document.documentElement.dataset.theme; return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches; };
 const syncTheme = () => { themeBtn.textContent = isDark() ? '☀️' : '🌙'; themeBtn.title = isDark() ? '라이트 모드' : '다크 모드'; };
