@@ -2255,6 +2255,9 @@ const PROC_BY = Object.fromEntries(PROC.map(p => [p.key, p]));
 function ioOf(v) { v = String(v || '').trim(); return /^(수신|IB|인바운드)/i.test(v) ? 'IB' : /^(발신|OB|아웃바운드)/i.test(v) ? 'OB' : ''; }
 const ioTag = v => v ? `<span class="tag ${v === 'OB' ? 'purple' : ''}">${v}</span>` : '<span class="muted">—</span>';
 function procOf(r) {
+  // 토플 확인 이모지(2026-11-12 결정)가 찍힌 건은 처리 방식처럼 처리 구분도 원격 · 현장 기록과 관계없이 토스플레이스 확인
+  //   (같은 매장 원격 기록이 붙어 'CS안내'가 원격AS로 세어지던 문제)
+  if (r.methodByToss) return 'toss';
   if (r.visit || ['현장지원', '방문점검', '현장 지원'].includes(r.method)) return 'visit';
   const c = r.catAll || r.cat || '';
   if (r.remote && r.remote.linked && PROC_BY[r.remote.cat]) return r.remote.cat;
