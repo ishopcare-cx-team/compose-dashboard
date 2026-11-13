@@ -800,7 +800,7 @@ const INFLOWS = ['고객센터', '원격팀', 'OS'];
 const CH_RENAMES = { '포스': '포스(PC,포스기)', 'pos': '포스(PC,포스기)', 'POS': '포스(PC,포스기)', '주방프린터': '프린터' };
 // 연결 규칙: 원격 AS는 상담 후 LINK_AS_DAYS일 안, 현장 방문은 LINK_VISIT_DAYS일 안의 같은 매장 상담에 붙입니다.
 // 원격 기록이 상담보다 먼저 적힌 경우(상담 내역 적재가 늦음)도 AS_EARLY_MIN분까지는 같은 건으로 봅니다.
-const LINK = { AS_DAYS: 3, AS_EARLY_MIN: 720, VISIT_DAYS: 10, CLOSED_GRACE_MIN: 60, BULK_MIN_RECORDS: 3, DUP_MIRROR_MIN: 5 };
+const LINK = { AS_DAYS: 3, AS_EARLY_MIN: 720, VISIT_DAYS: 10, CLOSED_GRACE_MIN: 60, BULK_MIN_RECORDS: 3, DUP_MIRROR_MIN: 5, COLLAB_SAME_MIN: 1440 };
 // 대시보드 시작일(2026-11-06 결정): 모든 목록 · 집계는 이날부터. 장비 조회의 보유 장비 계산에만 그 전 설치 이력을 씁니다.
 const DATA_FROM = '2026-10-07';
 const fromOk = d => !!d && (typeof d === 'string' ? d.slice(0, 10) : ymd(d)) >= DATA_FROM;
@@ -989,6 +989,17 @@ function buildModel(raw) {
       const o = RECS.find(x => x !== r && x.slackOnly && !drop.has(x) && dt(x.at) === String(r.verify.at).slice(0, 16));
       if (o) { if (o.slack && !r.slack) r.slack = o.slack; r.dupIds = (r.dupIds || []).concat(o.id); drop.add(o); }
     });
+    // 협업채널 접수 리포트(CS BOT이 다른 채널 글을 이모지로 가져온 글, 출처 = 협업채널 · 2026-11-13 결정): 이미 들어와 있는 건인지 먼저 봅니다.
+    //   같은 매장 · 리포트 전 COLLAB_SAME_MIN분 안에 들어온 건 중 장비가 같고(한쪽을 모르면 통과) 리포트 시각에 아직 끝나지 않은 건이 있으면 그 건에 이어 붙이고, 없으면 새 건입니다.
+    RECS.filter(r => r.slackOnly && r.slack && r.slack.source === '협업채널' && r.skey && !drop.has(r)).forEach(r => {
+      const o = RECS.filter(x => x !== r && !drop.has(x) && x.skey === r.skey && x.at < r.at && r.at - x.at <= LINK.COLLAB_SAME_MIN * 60000 && !(x.doneAt && x.doneAt <= r.at) && (x.channel === '기타' || r.channel === '기타' || x.channel === r.channel)).sort((a, b) => b.at - a.at)[0];
+      if (!o) return;
+      o.collab = { at: r.at, id: r.id, slack: r.slack };
+      if (!o.slack) o.slack = r.slack;
+      if (r.status === '완료') o.status = '완료';
+      o.dupIds = (o.dupIds || []).concat(r.id);
+      drop.add(r);
+    });
     if (drop.size) RECS = RECS.filter(r => !drop.has(r));
   }
   const byStore = {};
@@ -1013,7 +1024,9 @@ function buildModel(raw) {
   // 2) 원격 AS → 같은 매장, 상담 뒤 3일 안(상담보다 30분 이른 기록까지)의 가장 가까운 상담. 원격지원 상담을 먼저 고릅니다.
   //    양쪽 글에서 장비를 알 수 있는데 서로 다르면(예: 프린터 요청 ↔ 키오스크 상담) 붙이지 않습니다.
   const sameDevice = (ch, text) => { const g = guessChannel(text); return ch === '기타' || g === '기타' || g === ch; };
-  const asRecs = (raw.remote && raw.remote.as || []).map(a => Object.assign({}, a, /미기재/.test(a.store || '') || /미기재/.test(a.branch || '') ? { store: '', branch: '' } : {}, { at: P(a.atFull) || P(`${a.date} ${a.time || '00:00'}`) })).filter(a => a.at && fromOk(a.at) && !(REMOTE_FIXES[a.atFull] || {}).exclude && !STORE_EXCLUDE.test(a.store || a.branch || '') && !isTestText(a.req) && !nearTest(a.store || a.branch, a.at)).sort((x, y) => x.at - y.at);
+  // 매장명 자리에 '컴포즈 > 키오스크 > 프로그램 오류' 같은 분류 경로가 들어온 기록(매장명 없는 CS BOT 글을 원격팀 원장이 읽은 경우)은 매장 미기재로 봅니다.
+  const noStoreText = s => /미기재/.test(s || '') || /(^|\s)>\s/.test(s || '');
+  const asRecs = (raw.remote && raw.remote.as || []).map(a => Object.assign({}, a, noStoreText(a.store) || noStoreText(a.branch) ? { store: '', branch: '' } : {}, { at: P(a.atFull) || P(`${a.date} ${a.time || '00:00'}`) })).filter(a => a.at && fromOk(a.at) && !(REMOTE_FIXES[a.atFull] || {}).exclude && !STORE_EXCLUDE.test(a.store || a.branch || '') && !isTestText(a.req) && !nearTest(a.store || a.branch, a.at)).sort((x, y) => x.at - y.at);
   // 일괄 이모지: 여러 옛 글에 한꺼번에 단 이모지(예: 11/4 10:25)는 처리 시각이 아닙니다.
   //   확인 · 착수 · 결과 시각 중 같은 분에 서로 다른 기록이 BULK_MIN_RECORDS건 이상이면 그 분의 시각은 일괄로 보고 쓰지 않습니다.
   const minuteOf = v => String(v || '').slice(0, 16), bulkCount = {};
@@ -1027,6 +1040,9 @@ function buildModel(raw) {
   const tossOnlyBot = c => !!(c.slack && c.slack.source === '콜라비' && (c.slack.tossAt || /^토플/.test(c.slack.status || '')) && !c.slack.remoteAt && !c.slack.ownerAt);
   // 원장 시각은 '시:분'(초 버림)이라 같은 콜도 상담보다 1분쯤 앞서 보입니다. 2분 안은 앞선 기록으로 보지 않습니다.
   const asDiffScore = diff => diff < -2 ? 2880 - diff : Math.abs(diff);
+  // 슬랙 글 링크(p + 초 10자리)의 올린 시:분 · 원장 기록의 시:분
+  const postMinute = link => { const m = String(link || '').match(/\/p(\d{10})\d*/); return m ? dt(new Date(+m[1] * 1000)) : ''; };
+  const asMinute = a => minuteOf(a.atFull || `${a.date} ${a.time || ''}`);
   // 전역 매칭: 모든 (원격 기록, 상담) 짝의 점수를 먼저 계산하고 점수가 좋은 짝부터 배정합니다(먼저 처리한 기록이 상담을 가져가지 않게).
   //   점수: tf 글 링크 일치 > 매장명 없는 요청의 앞뒤 10분 원격지원 상담 > 같은 매장 시각 점수(nearest와 같은 계산)
   //   이미 처리 완료(R열)된 상담에 CLOSED_GRACE_MIN분 넘게 지나 생긴 원격 기록은 그 상담의 처리로 보지 않습니다(원격팀 자체 재점검 등).
@@ -1036,6 +1052,9 @@ function buildModel(raw) {
     const k = skey(a.store || a.branch), text = `${a.req} ${a.note}`;
     const open = c => !(c.doneAt && a.at - c.doneAt > LINK.CLOSED_GRACE_MIN * 60000);
     if (a.tfTs) csRecs.forEach(c => { if (c.slack && String(c.slack.link || '').includes('p' + a.tfTs.replace('.', ''))) pairs.push({ ai, c, score: -1e9 }); });
+    // CS BOT 상담 연동 글(상호 · 사업자번호 · 핸드폰 번호 양식, 출처 = 콜라비)은 상담 연동 시트 1줄과 같은 건입니다(2026-11-13 결정).
+    //   원격팀 원장은 이 글을 올라온 시:분으로 적으므로, 원장 시각 = 글 시각(분)이면 매장명과 관계없이 그 상담의 기록입니다.
+    else csRecs.forEach(c => { if (c.slack && c.slack.source === '콜라비' && !tossOnlyBot(c) && postMinute(c.slack.link) === asMinute(a)) pairs.push({ ai, c, score: -1e9 }); });
     if (!k) csRecs.forEach(c => { const d = Math.abs(c.at - a.at); if (!tossOnlyBot(c) && d <= (c.dup ? LINK.DUP_MIRROR_MIN : 10) * 60000 && (c.method === '원격지원' || /원격/.test(c.catAll || c.cat))) pairs.push({ ai, c, score: -1e8 + d / 60000 }); });
     else (byStore[k] || []).forEach(c => {
       if (c.src !== 'cs' || !open(c) || tossOnlyBot(c)) return;
@@ -1067,7 +1086,7 @@ function buildModel(raw) {
     if (selfBulk) remote.resultAt = null;
     if (fix.recheck) remote.resultAt = null;
     // 토플 단독 CS BOT 글 앞뒤 10분 안 같은 매장 원장 기록 = 원격팀이 같은 콜을 원장에 적어 둔 것. 따로 인입으로 세지 않습니다(그 상담에는 붙이지 않음).
-    const mirror = !c && !a.skipRec && csRecs.find(x => tossOnlyBot(x) && (k ? x.skey === k : true) && Math.abs(x.at - a.at) <= 10 * 60000);
+    const mirror = !c && !a.skipRec && csRecs.find(x => tossOnlyBot(x) && (postMinute(x.slack.link) === asMinute(a) || ((k ? x.skey === k : true) && Math.abs(x.at - a.at) <= 10 * 60000)));
     if (mirror) mirror.asMirror = (mirror.asMirror || []).concat({ at: a.at, req: a.req });
     if (c) { c.remote = Object.assign(remote, { handoff: c.at }); asLinked++; }
     else if (a.skipRec || mirror) { /* 실사 · 팀 공지 · 토플 단독 건의 원장 기록: 인입으로 세지 않음(실사는 아래 장비 이력에만) */ }
