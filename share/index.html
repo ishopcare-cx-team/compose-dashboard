@@ -1918,7 +1918,9 @@ function tlItems(r) {
   const lines = a => a.filter(Boolean).join('\n'), L = (r.caseSum && r.caseSum.lines) || {};
   // ① 인입
   add(1, `인입 · ${via}`, r.at, L.intake || compress(r.q) || r.cat, '', lines([r.qFull || r.q, r.cat ? `문의유형: ${r.cat}` : '', r.channel ? `장비·채널: ${r.channel}` : '', r.cx ? `접수: ${fullName(r.cx)}` : '']));
-  const said = new Set([compress(r.q || r.cat)]), uniq = t => { const b = compress(t); if (!b || said.has(b)) return ''; said.add(b); return b; };
+  // 상담 시트 O열(조치 내용) 2026-11-13: 원격팀 처리 확인 · 최종 해결에 씀
+  const oCol = r.csAction && !/정리\s*중$/.test(r.csAction) && !noContent(r.csAction) ? r.csAction : '';
+  const said = new Set([compress(r.q || r.cat)]), uniq = t => { const b = compress(t); if (!b || noContent(b) || said.has(b)) return ''; said.add(b); return b; };
   // 같은 콜을 다시 올린 중복(:x:) 글 중 내용이 다른 것
   (r.dupNotes || []).forEach(n => { const t = uniq(n.text); if (t) add(1, '중복 접수 글', n.at, t, '', n.text); });
   (r.sameNotes || []).forEach(n => add(1, '같은 문의 다시 기록', n.at, n.text, '', n.text));
@@ -1931,7 +1933,8 @@ function tlItems(r) {
   // ③ 원격팀 처리 확인 · 1차 조치(원격 채널 확인 이모지 또는 #컴포즈-tf 담당자 확인 이모지 시각 + 그때 본 내용 · 조치)
   const doneT0 = r.doneAt || P(S.doneAt), ackRaw = R && (R.ackAt || R.startAt), ackLate = ackRaw && doneT0 && ackRaw > doneT0;
   const ackT = ackLate ? null : ackRaw, owner = R && fullName(R.ackBy || R.startBy || R.owner);
-  if (R && (R.linked || R.ackAt) && (ackT || R.action)) add(3, `원격팀 처리 확인${owner ? ` · ${owner}` : ''}${ackLate ? ` (기록 업로드 ${dts(ackRaw)})` : ''}`, ackT || null, L.first || uniq(R.action) || '원격 담당자 확인', '',
+  // 원격팀 처리 확인 내용 = 상담 시트 O열(조치 내용, 원격팀 이관 결과 · 2026-11-13). O열이 없으면 원장 조치
+  if (R && (R.linked || R.ackAt) && (ackT || R.action || oCol)) add(3, `원격팀 처리 확인${owner ? ` · ${owner}` : ''}${ackLate ? ` (기록 업로드 ${dts(ackRaw)})` : ''}`, ackT || null, L.first || oCol || uniq(R.action) || '원격 담당자 확인', '',
     lines([R.action || '원격 담당자 확인', R.ackAt ? `확인 ${dts(R.ackAt)}` : '', R.startAt && (!R.ackAt || R.startAt - R.ackAt >= 60000) ? `착수 ${dts(R.startAt)}` : '', owner ? `담당: ${owner}` : '']));
   // ④ 2차 대응: 원격으로 끝나지 않아 다음 대응으로 넘어간 것(현장 방문 요청 · 토스플레이스 이관 · 회신)
   if (V || S.visitAt) {
@@ -1941,17 +1944,37 @@ function tlItems(r) {
   const tossAsk = (T && T.asked) || P(S.tossAt), tossDone = (T && T.done) || P(S.tossDoneAt);
   if (tossAsk || T) add(4, '토스플레이스 이관', tossAsk, (!V && L.second) || uniq(T && T.slack && T.slack.question) || '토플에 확인 요청', '',
     lines([(T && T.slack && T.slack.question) || '토스플레이스에 확인 요청', tossDone ? '' : '회신 기다리는 중']));
-  if (tossDone && (!tossAsk || tossDone - tossAsk >= 60000)) add(4, '토스플레이스 회신', tossDone, compress(T && T.slack && T.slack.answer) || '토스플레이스 회신 받음', '회신', (T && T.slack && T.slack.answer) || '토스플레이스 회신 받음');
+  // 회신 글에 내용이 없으면(cc · 멘션 · 이모지 · '네' 같은 짧은 답만, 2026-11-13) 같은 시:분의 스레드 요약 단계(AI 정리)로 채우고, 그것도 없으면 타임라인에서 뺍니다.
+  //   회신 시각은 처리 시간 · 집계에 그대로 씁니다.
+  const tossStep = tossDone && T && T.sum && (T.sum.steps || []).find(s => s && s.t === hm(tossDone) && !noContent(s.what));
+  // 스레드 정리(Claude)의 회신 요약이 있으면 그것을 씁니다(2026-11-13: 마지막 댓글은 일반 답변일 수 있음). '없음' = 결과 회신이 없는 스레드 → 회신 단계 뺌
+  const sumReply = T && T.sum && T.sum.reply;
+  const tossAns = sumReply ? (sumReply === '없음' || noContent(sumReply) ? '' : sumReply) : T && T.slack && !noContent(T.slack.answer) ? T.slack.answer : tossStep ? tossStep.what : '';
+  if (tossDone && tossAns && (!tossAsk || tossDone - tossAsk >= 60000)) add(4, '토스플레이스 회신', tossDone, compress(tossAns), '회신', tossAns);
   // ⑤ 최종 해결: [처리 완료] 워크플로 시각 먼저. 내용은 현장 방문 조치 → tf 조치 · 상담 조치 · 정리 결과 · 원격 결과 · 토플 회신 · 안내 순
   if (r.status === '완료') {
     const visitEnd = V && !V.pending ? (() => { const d = new Date(V.date); d.setHours(18, 0, 0, 0); return d; })() : null;
     const endAt = r.doneAt || P(S.actionAt) || P(S.doneAt) || visitEnd || (r.minutes != null ? new Date(r.at.getTime() + r.minutes * 60000) : null);
     const visitText = V && !V.pending ? `현장 ${V.kind || '방문'} 조치 완료${V.action ? ` · ${V.action}` : V.equip ? ` · ${V.equip}` : ''}` : '';
-    const result = S.action || visitText || r.csAction || (r.caseSum && r.caseSum.result) || (R && (R.action || R.result)) || (T && T.slack && T.slack.answer) || (r.method === 'CS' ? r.a : '');
-    add(5, '최종 해결', endAt, [L.result, compress(result)].find(t => t && !clash(t, '완료')) || '처리 완료', '해결',
+    // 처리 결과 = 상담 시트 O열(조치 내용)이 있으면 그 값 그대로(2026-11-13 결정). '결제 미완료 건…'처럼 원인 설명의 낱말로 빼지 않습니다.
+    const result = oCol || [S.action, visitText, r.caseSum && r.caseSum.result, R && R.action, R && R.result, tossAns, r.method === 'CS' ? r.a : ''].find(t => t && !noContent(t)) || '';
+    // 앞 단계(원격팀 처리 확인 등)에 같은 내용이 이미 있으면(조치 내용 = 원격팀 결과, 2026-11-13) 최종 해결은 AI 처리 한 줄('증상, 조치')의 조치 부분으로 씁니다.
+    const norm = t => String(t || '').replace(/[^0-9A-Za-z가-힣]/g, ''), shown = new Set(items.filter(x => x.step > 1).map(x => norm(x.text)));
+    //   최종 해결 = 전체 상담의 해결 결과(AI 처리 한 줄 '증상, 조치' 전체)
+    let endText = oCol || [L.result, compress(result)].find(t => t && !clash(t, '완료')) || '처리 완료';
+    if (shown.has(norm(finishKo(endText)))) endText = [r.line, R && R.line].find(t => t && !noContent(t) && !shown.has(norm(finishKo(t)))) || endText;
+    add(5, '최종 해결', endAt, endText, '해결',
       lines([result || '처리 결과 기록 없음', r.minutesBy ? `완료 근거: ${r.minutesBy}` : '', r.minutes != null ? `처리 시간: ${r.minutesBy === '상담 중 해결' ? '상담 중 해결' : fmtMin(r.minutes)}` : '', V && !V.pending && V.equip ? `현장 장비: ${V.equip}` : '']));
   } else if (r.noDoneEvidence) add(5, '완료 근거 없음', null, '처리 완료 기록(워크플로 · 이모지 · 처리 완료 시각 · 원격 결과 · 현장 완료 · 토플 해결)이 아직 없어요', '진행 중', '');
   return tlOrder(r, items);
+}
+// 내용 없는 글(2026-11-13): 멘션 · cc · 이모지 코드 · 기호를 빼고 남는 게 없거나 '네 · 넵 · 확인 · ok' 같은 짧은 답뿐인 글
+function noContent(t) {
+  const raw = String(t || ''), hadCc = /\bc\.?c\b/i.test(raw);
+  let s = raw.replace(/<@[A-Z0-9]+>|@[^\s,()]+(\([^)]*\))?|:[a-z0-9_+-]+:|\bc\.?c\.?(?![a-z])/gi, '').replace(/[^0-9A-Za-z가-힣]/g, '');
+  // 'cc'만 있던 글을 AI가 정리한 문장('cc 문구 2회 기재' 같은)도 내용 없음
+  if (hadCc) s = s.replace(/문구|\d+회|기재|표기|작성|언급|참조|만|만있음|뿐/g, '');
+  return !s || /^(네|넵|넹|예|ok|okay|확인|확인했습니다|확인완료|ㅇㅇ|ㅇㅋ)$/i.test(s);
 }
 // 타임라인 순서(2026-11-13): 시각이 있는 항목은 무조건 시각 순. 인입보다 이른 시각(원장 시:분 · 늦게 옮겨 적은 기록)은 인입 시각으로 맞추고 '기록 시각 보정'.
 //   시각이 없는 항목만 단계 순서로 앞뒤 항목 사이에 둡니다.
@@ -2438,7 +2461,7 @@ function procDetail(x) {
     const items = V ? [{ label: `현장 ${V.kind || '방문'} 요청`, tt: ymd(V.at || P(V.date)).slice(5), full: [V.equip, V.by ? `현장 담당: ${fullName(V.by)}` : ''].filter(Boolean).join('\n') },
         { label: V.pending ? `현장 ${V.kind || '방문'} 예정` : `현장 ${V.kind || '방문'} 완료`, tag: V.pending ? '예정' : '해결', tt: String(V.date || '').slice(5) || '날짜 기록 없음', full: [V.action || (V.pending ? '' : `${V.equip || '현장'} ${V.kind || '조치'} 완료`), V.by ? `담당: ${fullName(V.by)}` : ''].filter(Boolean).join('\n') }]
       : [{ label: '토스플레이스 확인 요청', t: T.asked, full: (T.slack && T.slack.question) || '토스플레이스에 확인 요청' },
-        T.done ? { label: '토스플레이스 회신', tag: '해결', t: T.done, full: (T.slack && T.slack.answer) || '회신 받음' } : { label: '회신 대기', tag: '진행', tt: '진행 중', full: '' }];
+        T.done ? { label: '토스플레이스 회신', tag: '해결', t: T.done, full: (T.sum && T.sum.reply && T.sum.reply !== '없음' && T.sum.reply) || (T.slack && !noContent(T.slack.answer) && T.slack.answer) || '회신 받음' } : { label: '회신 대기', tag: '진행', tt: '진행 중', full: '' }];
     const head = V ? `현장 ${V.kind || '방문'} · ${V.equip || ''}` : compress(T.slack && T.slack.question) || '토스플레이스 문의';
     const tag = done ? '해결' : V && V.pending ? '예정' : '진행 중', facts = [[x.proc, '처리 방식'], [x.channel, '장비·채널'], [x.id, '접수번호']].filter(f => f[0] && f[0] !== '—');
     return `<div class="flow"><div class="facts">${facts.map(([v, k]) => `<span>${k} <b>${esc(v)}</b></span>`).join('')}</div>${tlcHtml(items)}</div>`;
