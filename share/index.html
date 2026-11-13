@@ -937,7 +937,13 @@ function buildModel(raw) {
   RECS = (raw.consults || []).filter(c => ioOf(c.io) !== 'OB' && !STORE_EXCLUDE.test(c.store || '') && !isTestText(c.question || '') && !/^테스트/.test(String(c.question || '').trim()) && !slackSkip(c)).map(c => {
     const at = P(c.at); if (!at || !fromOk(at)) return null;
     const st = ensure(c.store, 'cs'), iss = issueByReceipt[c.receipt];
-    const done = P(c.doneAt), sl = c.slack || null;
+    const done = P(c.doneAt);
+    // 지운 토플 이모지(2026-11-13): TF 자동화는 토플 문의 시각을 처음 본 시각으로 남기고, 이모지를 지워도 '토플 완료 시각'을 찍습니다.
+    //   지금 달린 상태 이모지(emojis)에 토플 확인 · 토플 답변이 모두 없고 상태도 토플이 아니면 잘못 단 이모지로 보고 토플 시각을 쓰지 않습니다.
+    //   (토스플레이스에 실제로 올린 글이 붙으면 그 글로 이관 · 회신 단계가 생깁니다)
+    const tossGone = !!(c.slack && c.slack.tossAt && typeof c.slack.emojis === 'string' && !/compose-toss/.test(c.slack.emojis) && !/^토플/.test(c.slack.status || ''));
+    const sl = !c.slack ? null : tossGone ? Object.assign({}, c.slack, { tossAt: '', tossDoneAt: '', tossGoneAt: c.slack.tossAt }) : c.slack;
+    if (tossGone) c = Object.assign({}, c, { tossAsked: '', tossDone: '' });
     // 장비·채널: 통합 이슈 값 → 슬랙 AI 분석 값 → 문의 글에서 추정
     const aiChannel = sl && (CH_RENAMES[sl.aiChannel] || sl.aiChannel);
     // 인입 채널: 상담 내역(고객센터)에 있는 건은 상담 인입 경로로(현장 · 원격팀 · 고객센터). 슬랙 '출처'(수기 · 워크플로 · 협업채널)는 상담 내역에 아직 없는 글에만 씁니다.
