@@ -1155,6 +1155,8 @@ function buildModel(raw) {
     if ((TOSS_FIXES[`${t.date} ${t.time}`.slice(0, 16)] || {}).exclude) return;
     // 워크플로 글([개선요청] · [오류])은 매장명 · '컴포즈'가 없어도 인입 1건(2026-11-13)
     const wf = t.channel === '협업채널' && t.date >= '2026-11-04' ? wfKind(t.question) : '';
+    // [개선요청] 워크플로 글은 상담이 아닌 요청이라 VOC에만(2026-11-14 결정): 인입 · 처리 내역 · 상담 타임라인에 넣지 않습니다.
+    if (wf === '개선요청') return;
     if (!asked || !fromOk(asked) || STORE_EXCLUDE.test(t.store || '') || isTestText(t.question || '') || (!keys.length && !composeText(t.question) && !wf)) return;
     // 실사 글 · 매장명 없는 팀 공지 글은 상담에 붙이지도 따로 세지도 않습니다(2026-11-13)
     if (!wf && (isSilsa([t.question, t.sum && t.sum.category, t.sum && t.sum.intake].join(' ')) || (isNoticeText(t.question) && !keys.length))) return;
@@ -2414,7 +2416,8 @@ function issueDetail(i) {
   return `<div class="vp" style="--n:2">${infoBox([['유형', i.type], ['분류', i.category], ['발생 경로', i.route], ['영업 영향', i.impact], ['매장', issueStores(i).length > 1 ? `${issueStores(i).length}곳` : issueStores(i)[0] || ''], ['접수번호', (i.receipts || [i.receipt]).filter(Boolean).join(', ')], ['담당', i.owner], ['완료일', i.doneDate]])}${panel('asis', '!', '내용', i.content)}${panel('act', '✓', '조치 내용', i.action)}</div>${i.slackLink ? `<a class="link" href="${esc(i.slackLink)}" target="_blank" rel="noopener">슬랙 원문 보기 ↗</a>` : ''}`
     + issueStoresHtml(i) + recs.map(recLink).join('');
 }
-const vocDetail = v => `<div class="vp" style="--n:3">${infoBox([['상황·빈도', v.condition], ['동일 이슈 매장', v.sameStores], ['담당', v.owner]])}${panel('asis', '!', '현상 As-Is', v.asIs)}${panel('tobe', '→', '요청사항 To-Be', v.toBe)}${panel('act', '✓', '조치·답변', v.action)}</div>${v.slackLink ? `<a class="link" href="${esc(v.slackLink)}" target="_blank" rel="noopener">슬랙 원문 보기 ↗</a>` : ''}`;
+// 2026-11-14: 현상 As-Is는 적힌 줄에만(현장은 요청만 씀), 요청 내용 → 아이샵 조치 → 토스플레이스 답변(컴포즈 시트 v2.61)
+const vocDetail = v => { const panels = (String(v.asIs || '').trim() ? [panel('asis', '!', '현상 As-Is', v.asIs)] : []).concat([panel('tobe', '→', '요청 내용', v.toBe), panel('act', '✓', '아이샵 조치', v.action), panel('info', '💬', '토스플레이스 답변', v.tossAnswer)]); return `<div class="vp" style="--n:${panels.length}">${infoBox([['상황·빈도', v.condition], ['동일 이슈 매장', v.sameStores], ['담당', v.owner]])}${panels.join('')}</div>${v.slackLink ? `<a class="link" href="${esc(v.slackLink)}" target="_blank" rel="noopener">슬랙 원문 보기 ↗</a>` : ''}`; };
 // 처리 내역: 원격팀 대시보드와 같은 처리 구분 8가지. 원격팀 기록은 원격팀 분류(cat)를, CS 상담은 상담유형을 대응표 기준으로 나눕니다.
 const PROC = [
   { key: 'as', name: '원격AS', color: '#34c759' }, { key: 'visit', name: '현장방문', color: '#ff3b30' }, { key: 'inquiry', name: '단순문의', color: '#0071e3' },
@@ -2551,7 +2554,7 @@ function viewVoc() {
     const VS = VOC.filter(x => inPeriod(P(x.date)));
     const isOpenV = v => !['완료', '보류'].includes(v.status), cf = CARDF.voc || '';
     const byCard = v => !cf || (cf === 'open' ? isOpenV(v) : cf === 'urgent' ? isOpenV(v) && /^(긴급|높음)/.test(v.priority) : v.status === cf);
-    const rows = applyFilter('voc', VS, { store: v => [v.store, v.sameStores].join(' '), text: v => [v.id, v.title, v.asIs, v.toBe, v.condition, v.action, v.owner].join(' '), tags }).filter(byCard), p = paged('voc', rows, 30);
+    const rows = applyFilter('voc', VS, { store: v => [v.store, v.sameStores].join(' '), text: v => [v.id, v.title, v.asIs, v.toBe, v.condition, v.action, v.tossAnswer, v.owner].join(' '), tags }).filter(byCard), p = paged('voc', rows, 30);
     const open = VS.filter(isOpenV);
     h += `<div class="ov-tiles" style="--n:4">${tile('미해결 요청', num(open.length), '건', `전체 ${VS.length}건 중`, Object.assign({ grand: true }, cardOpt('voc', 'open')))}${tile('긴급·높음 미해결', num(open.filter(v => /^(긴급|높음)/.test(v.priority)).length), '건', '', Object.assign({ c: 'var(--red)' }, cardOpt('voc', 'urgent')))}${tile('반영예정', num(VS.filter(v => v.status === '반영예정').length), '건', `완료 ${VS.filter(v => v.status === '완료').length} · 보류 ${VS.filter(v => v.status === '보류').length}`, Object.assign({ c: 'var(--green)' }, cardOpt('voc', '반영예정')))}${tile('요청 매장', num(new Set(VS.map(v => v.store)).size), '곳', '누르면 전체 보기', cardOpt('voc', ''))}</div>
       <div class="card"><div class="card-head"><h3>기능 개선 요청 ${src('cs')}</h3><span class="hint">누르면 세부 정보 · 현상 · 요청 · 조치가 펼쳐짐</span></div>${filterBar('voc', VS, tags, rows.length, { closeAll: true })}
