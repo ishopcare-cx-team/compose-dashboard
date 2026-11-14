@@ -829,7 +829,7 @@ const wfKind = t => { const m = String(t || '').match(/^\s*[\[【]\s*(개선\s*�
 // 지점 장비 핵심(서버 AI 정리): skey → 1~2문장
 let EQCORE = {};
 let REC_EXCLUDED = [];
-let RAW = null, TODAY = new Date(), RECS = [], ISSUES = [], VOC = [], HAPPY = [], HCQ = HC_DEFAULT, STORES = [], SM = {}, CHECK_ITEMS = [], LINKSTAT = {}, VISIT_ONLY = [], CS_LAST = '', TOSS_ONLY = [], CANDS = [];
+let RAW = null, TODAY = new Date(), RECS = [], ISSUES = [], VOC = [], HAPPY = [], HCQ = HC_DEFAULT, STORES = [], SM = {}, CHECK_ITEMS = [], LINKSTAT = {}, VISIT_ONLY = [], CS_LAST = '', TOSS_ONLY = [], CANDS = [], COLLAB_ONLY = [];
 
 const pad = n => String(n).padStart(2, '0');
 const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -1146,6 +1146,8 @@ function buildModel(raw) {
 
   // 토스플레이스 문의(슬랙 고객센터-플레이스 채널): 같은 매장 상담 중 앞뒤 하루 안의 가장 가까운 건에 붙입니다.
   TOSS_ONLY = [];
+  // 2026-11-14: 시트에 없는 협업채널 워크플로 글(서버가 슬랙 후보 자동 등록 중 시트에 같은 글이 없는 것만 보냄) — 데이터 점검에만
+  COLLAB_ONLY = (raw.collabOnly || []).map(x => ({ id: x.id, at: P(x.date), store: x.store || '—', cat: `협업채널 ${x.kind}`, status: x.status, title: x.title, slackLink: x.slackLink, noGo: true }));
   // 슬랙 후보 · 토스플레이스 문의: 테스트 글과, 매장명도 없고 '컴포즈'도 없는 글(컴포즈와 관계없는 협업채널 글)은 뺍니다.
   const composeText = t => /컴포즈|compose|\d{3,4}\s*호점/i.test(String(t || ''));
   CANDS = (raw.slackCandidates || []).filter(c => fromOk(c.date) && !STORE_EXCLUDE.test(c.store || '') && !isTestText([c.title, c.summary].join(' ')) && (String(c.store || '').trim() || composeText([c.title, c.summary].join(' '))));
@@ -2897,7 +2899,7 @@ function dataCheckCard() {
   if (!VIEWER.internal || mode === 'share') return '';
   const now = P(RAW && RAW.now) || new Date(), names = STORES.filter(s => s.listed).map(s => s.name).sort((a, b) => a.localeCompare(b, 'ko'));
   const go = r => `<button class="linkish" data-gorec="${esc(r.id)}">${esc(r.id)}</button>`;
-  const line = (r, extra) => `<div class="chk-line">${r.excludeWhy ? `<b>${esc(r.id)}</b>` : go(r)}<span class="muted">${dt(r.at).slice(5)}</span><span>${esc(r.store)}</span><span class="muted">${esc(r.cat)}</span>${statusBadge(r.status)}${extra || ''}</div>`;
+  const line = (r, extra) => `<div class="chk-line">${r.excludeWhy || r.noGo ? `<b>${esc(r.id)}</b>` : go(r)}<span class="muted">${dt(r.at).slice(5)}</span><span>${esc(r.store)}</span><span class="muted">${esc(r.cat)}</span>${statusBadge(r.status)}${extra || ''}</div>`;
   const groups = [
     { k: '매장 미확인', hint: '매장을 골라 저장하면 모든 화면(공유용 포함)에 바로 반영돼요', rows: RECS.filter(r => !r.skey),
       extra: r => `<select data-sfix-sel="${esc(r.id)}"><option value="">매장 선택</option>${names.map(n => `<option>${esc(n)}</option>`).join('')}</select><button class="btn sm primary" data-sfix="${esc(r.id)}">저장</button>` },
@@ -2907,9 +2909,12 @@ function dataCheckCard() {
     { k: '같은 슬랙 글 합침', hint: '같은 CS BOT 글에 상담 시트 줄이 여러 개라(같은 콜의 상태 변경) 1건으로 셌어요(확인용)', rows: RECS.filter(r => r.sameIds), extra: r => `<span class="muted">+ ${esc(r.sameIds.join(', '))}</span>` },
     { k: '상태 보정', hint: '상담 시트 · 슬랙 상태와 화면 상태가 달라요. 완료 근거를 찾아 완료로 봤어요(확인용)', rows: RECS.filter(r => r.statusRaw && r.statusRaw !== r.status), extra: r => `<span class="muted">${esc(r.statusRaw)} → ${esc(r.status)} · ${esc(r.statusFixed || r.statusFrom || (r.statusByCase ? '건별 정리 해결' : ''))}</span>` },
     { k: '완료 근거 없음', hint: '처리 완료 기록(워크플로 · 이모지 · R열 · 원격 결과 · 현장 완료 · 토플 해결)이 없어 처리중으로 둔 건', rows: RECS.filter(r => r.noDoneEvidence) },
-    { k: '개별 제외', hint: '코드의 RECORD_FIXES로 인입 현황 · 처리 내역 · 집계에서 뺀 건(확인용)', rows: REC_EXCLUDED, extra: r => `<span class="muted">${esc(r.excludeWhy || '')}</span>` }
+    { k: '개별 제외', hint: '코드의 RECORD_FIXES로 인입 현황 · 처리 내역 · 집계에서 뺀 건(확인용)', rows: REC_EXCLUDED, extra: r => `<span class="muted">${esc(r.excludeWhy || '')}</span>` },
+    // 2026-11-14: VOC · 통합 이슈는 시트 줄만이라, 시트에 없는 협업채널 워크플로 글은 여기서만 보입니다.
+    { k: '시트에 없는 협업채널 글', alert: true, hint: '협업채널 [개선요청] · [오류] 워크플로 글인데 컴포즈 시트에 없어 VOC · 통합 이슈에 안 보여요. 컴포즈 시트에 직접 넣어 주세요',
+      rows: COLLAB_ONLY, extra: r => `<span class="muted">${esc(r.title || '')}</span>${r.slackLink ? ` <a class="link" href="${esc(r.slackLink)}" target="_blank" rel="noopener">슬랙 ↗</a>` : ''}` }
   ];
-  const total = groups.slice(0, 4).reduce((n, g) => n + g.rows.length, 0), key = 'chk:all', o = OPEN.has(key);
+  const total = groups.slice(0, 4).concat(groups.filter(g => g.alert)).reduce((n, g) => n + g.rows.length, 0), key = 'chk:all', o = OPEN.has(key);
   return `<div class="card" style="margin-top:16px"><div class="card-head"><h3>데이터 점검 <span class="tag ${total ? 'warn' : 'ok'}">${total ? `확인 필요 ${num(total)}건` : '이상 없음'}</span></h3><div style="display:flex; align-items:center; gap:8px"><span class="hint">${DATA_FROM} 이후 전체 · 내부용</span><button class="btn sm" data-toggle-key="${key}" aria-expanded="${o}">${o ? '접기 ▴' : '펼치기 ▾'}</button></div></div>
     <div class="chk-sum">${groups.map(g => `<span>${esc(g.k)} <b>${num(g.rows.length)}</b></span>`).join('')}</div>
     ${o ? groups.filter(g => g.rows.length).map(g => `<div class="chk-grp"><div class="chk-h"><b>${esc(g.k)}</b> <span class="hint">${esc(g.hint)}</span></div>${g.rows.slice(0, 30).map(r => line(r, g.extra && g.extra(r))).join('')}${g.rows.length > 30 ? `<div class="muted">외 ${num(g.rows.length - 30)}건</div>` : ''}</div>`).join('') : ''}</div>`;
