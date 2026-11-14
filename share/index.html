@@ -1173,10 +1173,16 @@ function buildModel(raw) {
   let csOnly = 0;
   RECS.forEach(r => { if (!r.remote && r.method === '원격지원') { csOnly++; r.remote = { owner: r.csOwner, start: null, handoff: r.at, action: r.csAction, linked: false }; } });
   // 슬랙 담당자 확인 이모지(선유_확인 등) 시각 = 원격 착수 시각. 원격팀 기록보다 정확하므로 대기 시간은 이 값을 먼저 씁니다.
+  // 일괄로 찍힌 시각(2026-11-15): 같은 분에 BULK_MIN_RECORDS건 이상 찍힌 '원격 담당 바뀐 시각'은 실제 확인 시각이 아닙니다.
+  //   슬랙은 이모지를 단 시각을 알려 주지 않아 컴포즈 슬랙 GAS가 처음 본 시각을 적는데, 11/14 09:20 v0.8.97이 :원격ㅇㅇ: 이모지를 처음 읽으면서
+  //   예전 글 7건(11/4~11/13)에 한꺼번에 그 시각을 찍었습니다(원격 착수 평균 4분 → 1.4일). 이런 시각은 착수 시각으로 쓰지 않습니다(담당자 이름은 그대로).
+  const ownerMin = {}, ownerKey = t => String(t || '').slice(0, 16);
+  RECS.forEach(r => { const t = r.slack && r.slack.ownerAt; if (t) ownerMin[ownerKey(t)] = (ownerMin[ownerKey(t)] || 0) + 1; });
   RECS.forEach(r => {
     const sl = r.slack; if (!sl || !sl.ownerAt) return;
     if (!r.remote) r.remote = { owner: sl.owner, start: null, handoff: r.at, action: sl.action || r.csAction, linked: false };
-    r.remote.ackAt = r.remote.ackAt || P(sl.ownerAt); r.remote.owner = sl.owner || r.remote.owner;
+    if ((ownerMin[ownerKey(sl.ownerAt)] || 0) < LINK.BULK_MIN_RECORDS) r.remote.ackAt = r.remote.ackAt || P(sl.ownerAt); else r.remote.ownerBulk = sl.ownerAt;
+    r.remote.owner = sl.owner || r.remote.owner;
   });
 
   // 3) 현장 방문: 설치는 장비 이력 · 설치일, AS는 상담(10일 안)에 붙입니다.
