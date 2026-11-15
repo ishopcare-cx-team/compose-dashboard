@@ -1914,9 +1914,13 @@ const OWNER_ALIAS = { '성철': '이성철' };
 const ownerName = n => { const t = fullName(n); return OWNER_ALIAS[t] || t; };
 // 그 건의 담당자(2026-11-15): 시트 상담 내역 '담당자' → 원격 담당 이모지 → 원격팀 원장 담당(11/14까지 건) → 처리완료 이모지를 단 사람 → 상담사.
 //   '미지정'은 건너뜁니다. 담당자별 처리 · 처리 내역 '담당' · 인입 현황 '담당자'가 모두 이 규칙을 씁니다.
+// 글 안 요청자 표시 '@이름(팀)'의 이름(여러 개면 마지막). 공유용 데이터는 다듬은 문장이라 없을 수 있음
+const registrantOf = text => { const all = String(text || '').match(/@([^@()（）\n]{1,20})[(（][^()（）\n]{2,60}[)）]/g); return all ? all[all.length - 1].replace(/^@/, '').replace(/[(（].*$/, '').trim() : ''; };
 function ownerOf(r) {
   const named = n => (n && !/^미지정$/.test(fullName(n)) ? n : ''), sl = r.slack || {};
-  const who = named(r.csOwner) || named(sl.owner) || named(r.remote && r.remote.owner) || named(sl.by) || r.cx || '';
+  // 협업채널에 바로 올린 예전 글(시트 밖 줄, 11/11 C1210 등): 워크플로 글의 등록자 '@이름(팀)' → 없으면 글을 올린 사람(2026-11-15)
+  const collab = r.viaCollab ? (registrantOf(r.toss && r.toss.slack && r.toss.slack.question) || r.poster || '') : '';
+  const who = named(r.csOwner) || named(sl.owner) || named(r.remote && r.remote.owner) || named(sl.by) || named(collab) || r.cx || '';
   return who ? ownerName(who) : '';
 }
 function ownerCard(rows) {
@@ -2540,8 +2544,9 @@ function issueDetail(i) {
   return `<div class="vp" style="--n:2">${infoBox([['유형', i.type], ['분류', i.category], ['발생 경로', i.route], ['영업 영향', i.impact], ['매장', issueStores(i).length > 1 ? `${issueStores(i).length}곳` : issueStores(i)[0] || ''], ['접수번호', (i.receipts || [i.receipt]).filter(Boolean).join(', ')], ['담당', i.owner], ['완료일', i.doneDate]])}${panel('asis', '!', '내용', i.content)}${panel('act', '✓', '조치 내용', i.action)}</div>${i.slackLink ? `<a class="link" href="${esc(i.slackLink)}" target="_blank" rel="noopener">슬랙 원문 보기 ↗</a>` : ''}`
     + issueStoresHtml(i) + recs.map(recLink).join('');
 }
-// 2026-11-14: 현상 As-Is는 적힌 줄에만(현장은 요청만 씀), 요청 내용 → 아이샵 조치 → 토스플레이스 답변(컴포즈 시트 v2.61)
-const vocDetail = v => { const panels = (String(v.asIs || '').trim() ? [panel('asis', '!', '현상 As-Is', v.asIs)] : []).concat([panel('tobe', '→', '요청 내용', v.toBe), panel('act', '✓', '아이샵 조치', v.action), panel('info', '💬', '토스플레이스 답변', v.tossAnswer)]); return `<div class="vp" style="--n:${panels.length}">${infoBox([['상황·빈도', v.condition], ['동일 이슈 매장', v.sameStores], ['담당', v.owner]])}${panels.join('')}</div>${v.slackLink ? `<a class="link" href="${esc(v.slackLink)}" target="_blank" rel="noopener">슬랙 원문 보기 ↗</a>` : ''}`; };
+// 2026-11-15: 요청 내용 → 아이샵 조치 → 토스플레이스 답변(컴포즈 시트 v2.61). 현상 As-Is는 시트에서 뺀 칸이라 예전 줄도 보이지 않게(앞뒤 같게),
+//   담당은 VOC가 토스플레이스에 전달하는 요청이라 뺌(사용자 결정).
+const vocDetail = v => { const panels = [panel('tobe', '→', '요청 내용', v.toBe), panel('act', '✓', '아이샵 조치', v.action), panel('info', '💬', '토스플레이스 답변', v.tossAnswer)]; return `<div class="vp" style="--n:${panels.length}">${infoBox([['상황·빈도', v.condition], ['동일 이슈 매장', v.sameStores]])}${panels.join('')}</div>${v.slackLink ? `<a class="link" href="${esc(v.slackLink)}" target="_blank" rel="noopener">슬랙 원문 보기 ↗</a>` : ''}`; };
 // 처리 구분 = 처리 방식(2026-11-15 결정): 시트 상담 내역 '처리 방식'과 같은 이름(CS · 원격지원 · 현장지원 · 토스플레이스 확인, 완료 전이면 처리 중).
 //   예전에는 원격팀 업무 분류(원격AS · 온보딩 · 명의변경 · 메뉴등록 …)를 썼는데 처리 방식과 따로 놀아 바꿨습니다.
 const PROC = [
@@ -2665,12 +2670,12 @@ function viewVoc() {
     const VS = VOC.filter(x => inPeriod(P(x.date)));
     const isOpenV = v => !['완료', '보류'].includes(v.status), cf = CARDF.voc || '';
     const byCard = v => !cf || (cf === 'open' ? isOpenV(v) : cf === 'urgent' ? isOpenV(v) && /^(긴급|높음)/.test(v.priority) : v.status === cf);
-    const rows = applyFilter('voc', VS, { store: v => [v.store, v.sameStores].join(' '), text: v => [v.id, v.title, v.asIs, v.toBe, v.condition, v.action, v.tossAnswer, v.owner].join(' '), tags }).filter(byCard), p = paged('voc', rows, 30);
+    const rows = applyFilter('voc', VS, { store: v => [v.store, v.sameStores].join(' '), text: v => [v.id, v.title, v.toBe, v.condition, v.action, v.tossAnswer].join(' '), tags }).filter(byCard), p = paged('voc', rows, 30);
     const open = VS.filter(isOpenV);
     h += `<div class="ov-tiles" style="--n:4">${tile('미해결 요청', num(open.length), '건', `전체 ${VS.length}건 중`, Object.assign({ grand: true }, cardOpt('voc', 'open')))}${tile('긴급·높음 미해결', num(open.filter(v => /^(긴급|높음)/.test(v.priority)).length), '건', '', Object.assign({ c: 'var(--red)' }, cardOpt('voc', 'urgent')))}${tile('반영예정', num(VS.filter(v => v.status === '반영예정').length), '건', `완료 ${VS.filter(v => v.status === '완료').length} · 보류 ${VS.filter(v => v.status === '보류').length}`, Object.assign({ c: 'var(--green)' }, cardOpt('voc', '반영예정')))}${tile('요청 매장', num(new Set(VS.map(v => v.store)).size), '곳', '누르면 전체 보기', cardOpt('voc', ''))}</div>
-      <div class="card"><div class="card-head"><h3>기능 개선 요청 ${src('cs')}</h3><span class="hint">누르면 세부 정보 · 현상 · 요청 · 조치가 펼쳐짐</span></div>${filterBar('voc', VS, tags, rows.length, { closeAll: true })}
-      <div class="tbl-scroll"><table class="mcard"><thead><tr><th>VOC ID</th><th>등록일</th><th>매장</th><th>구분</th><th>장비·채널</th><th>카테고리</th><th>제목</th><th>우선순위</th><th>상태</th><th>담당</th></tr></thead><tbody>
-      ${p.rows.map(v => xrow(v.key, `<td style="white-space:nowrap"><b>${esc(v.id || '—')}</b>${caret(v.key)}</td><td style="white-space:nowrap" class="muted">${esc(v.date)}</td><td style="white-space:nowrap">${esc(v.store)}</td><td><span class="tag ${v.kind === '오류' ? 'red' : 'warn'}">${esc(v.kind || '—')}</span></td><td>${esc(v.channel)}</td><td>${esc(v.category || '—')}</td><td><b>${esc(v.title)}</b></td><td>${prioTag(v.priority)}</td><td><span class="badge ${v.status === '완료' ? 'b-done' : v.status === '보류' ? 'b-gray' : 'b-open'}">${esc(v.status)}</span></td><td>${esc(v.owner || '—')}</td>`, 10, () => vocDetail(v))).join('') || `<tr><td colspan="10">${empty('조건에 맞는 요청이 없습니다.')}</td></tr>`}</tbody></table></div>${pager('voc', p)}</div>`;
+      <div class="card"><div class="card-head"><h3>기능 개선 요청 ${src('cs')}</h3><span class="hint">누르면 세부 정보 · 요청 · 조치 · 토스플레이스 답변이 펼쳐짐</span></div>${filterBar('voc', VS, tags, rows.length, { closeAll: true })}
+      <div class="tbl-scroll"><table class="mcard"><thead><tr><th>VOC ID</th><th>등록일</th><th>매장</th><th>구분</th><th>장비·채널</th><th>카테고리</th><th>제목</th><th>우선순위</th><th>상태</th></tr></thead><tbody>
+      ${p.rows.map(v => xrow(v.key, `<td style="white-space:nowrap"><b>${esc(v.id || '—')}</b>${caret(v.key)}</td><td style="white-space:nowrap" class="muted">${esc(v.date)}</td><td style="white-space:nowrap">${esc(v.store)}</td><td><span class="tag ${v.kind === '오류' ? 'red' : 'warn'}">${esc(v.kind || '—')}</span></td><td>${esc(v.channel)}</td><td>${esc(v.category || '—')}</td><td><b>${esc(v.title)}</b></td><td>${prioTag(v.priority)}</td><td><span class="badge ${v.status === '완료' ? 'b-done' : v.status === '보류' ? 'b-gray' : 'b-open'}">${esc(v.status)}</span></td>`, 9, () => vocDetail(v))).join('') || `<tr><td colspan="9">${empty('조건에 맞는 요청이 없습니다.')}</td></tr>`}</tbody></table></div>${pager('voc', p)}</div>`;
   }
   return h;
 }
