@@ -1273,6 +1273,8 @@ function buildModel(raw) {
   // 개별 제외(RECORD_FIXES): 묶기 · 연결 전에 빼서 그 건의 원격 · 현장 · 토플 기록이 다른 상담으로 옮겨 가지 않게 합니다.
   //   2026-11-15: 콜라비연동 시트 '대시보드 제외' 탭 A열에 적은 번호도 뺍니다(시트 밖 기록 · 현장방문 · 토플 줄을 시트에서 뺄 때).
   const SHEET_EXCLUDE = new Set((raw.recordExclude || []).map(x => String(x).trim()).filter(Boolean));
+  // 2026-11-15: 시트에 없는 줄의 담당자(콜라비연동 시트 '대시보드 담당자' 탭 A열 번호 · B열 이름)
+  OWNER_FIX = raw.ownerFix || {};
   REC_EXCLUDED = RECS.filter(r => (RECORD_FIXES[r.id] || {}).exclude || SHEET_EXCLUDE.has(r.id)).map(r => Object.assign(r, { excludeWhy: (RECORD_FIXES[r.id] || {}).why || '시트 대시보드 제외 탭' }));
   if (REC_EXCLUDED.length) RECS = RECS.filter(r => !REC_EXCLUDED.includes(r));
   if (SHEET_EXCLUDE.size) { VISIT_ONLY = VISIT_ONLY.filter(v => !SHEET_EXCLUDE.has(v.id)); TOSS_ONLY = TOSS_ONLY.filter(t => !SHEET_EXCLUDE.has(t.id)); }
@@ -1915,12 +1917,15 @@ const ownerName = n => { const t = fullName(n); return OWNER_ALIAS[t] || t; };
 // 그 건의 담당자(2026-11-15): 시트 상담 내역 '담당자' → 원격 담당 이모지 → 원격팀 원장 담당(11/14까지 건) → 처리완료 이모지를 단 사람 → 상담사.
 //   '미지정'은 건너뜁니다. 담당자별 처리 · 처리 내역 '담당' · 인입 현황 '담당자'가 모두 이 규칙을 씁니다.
 // 글 안 요청자 표시 '@이름(팀)'의 이름(여러 개면 마지막). 공유용 데이터는 다듬은 문장이라 없을 수 있음
-const registrantOf = text => { const all = String(text || '').match(/@([^@()（）\n]{1,20})[(（][^()（）\n]{2,60}[)）]/g); return all ? all[all.length - 1].replace(/^@/, '').replace(/[(（].*$/, '').trim() : ''; };
+// (VOC접수 워크플로의 '등록자 : @이름(팀)'만 — 글 안의 다른 멘션(토스 담당 등)은 쓰지 않음)
+const registrantOf = text => { const m = String(text || '').match(/등록자\s*[:：]?\s*@([^@()（）\n]{1,20})[(（]/); return m ? m[1].trim() : ''; };
+let OWNER_FIX = {};
 function ownerOf(r) {
   const named = n => (n && !/^미지정$/.test(fullName(n)) ? n : ''), sl = r.slack || {};
   // 협업채널에 바로 올린 예전 글(시트 밖 줄, 11/11 C1210 등): 워크플로 글의 등록자 '@이름(팀)' → 없으면 글을 올린 사람(2026-11-15)
   const collab = r.viaCollab ? (registrantOf(r.toss && r.toss.slack && r.toss.slack.question) || r.poster || '') : '';
-  const who = named(r.csOwner) || named(sl.owner) || named(r.remote && r.remote.owner) || named(sl.by) || named(collab) || r.cx || '';
+  // 시트에 없는 줄은 '대시보드 담당자' 탭에 적은 이름이 먼저
+  const who = named(OWNER_FIX[r.id]) || named(r.csOwner) || named(sl.owner) || named(r.remote && r.remote.owner) || named(sl.by) || named(collab) || r.cx || '';
   return who ? ownerName(who) : '';
 }
 function ownerCard(rows) {
