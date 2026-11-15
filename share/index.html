@@ -795,7 +795,8 @@ let HC_TYPES = HC_TYPES_DEFAULT, HCLOG = [], HCLOG_HIDDEN = [];
 const hcTypeOf = name => HC_TYPES.find(t => t.name === name);
 // 실시간 인입의 인입 채널: 슬랙 '출처'(법인폰 · 워크플로 등) → 상담 인입 경로 → 고객센터 순으로 정합니다.
 // 현장에서 받은 건도 원격팀 인입으로 셉니다(2026-11-06 결정).
-const INFLOWS = ['고객센터', '원격팀', 'OS'];
+// 인입: 11/15부터 건은 시트 '인입 경로' 그대로(고객센터 · 원격팀 · 현장 · SV · 해피콜), 그 전 건은 예전대로(고객센터 · 원격팀 · OS)
+const INFLOWS = ['고객센터', '원격팀', '현장', 'SV', '해피콜', 'OS'];
 // 슬랙 AI 분석의 예전 장비·채널 값 → 지금 이름(CS 리포트 ISSUE.CHANNEL_RENAMES와 같음)
 const CH_RENAMES = { '포스': '포스(PC,포스기)', 'pos': '포스(PC,포스기)', 'POS': '포스(PC,포스기)', '주방프린터': '프린터' };
 // 연결 규칙: 원격 AS는 상담 후 LINK_AS_DAYS일 안, 현장 방문은 LINK_VISIT_DAYS일 안의 같은 매장 상담에 붙입니다.
@@ -993,7 +994,9 @@ function buildModel(raw) {
   const nearTest = (store, at) => { const k = /미기재/.test(store || '') ? '' : skey(store); return !!at && TESTS.some(t => k ? t.k === k && Math.abs(t.at - at) <= 30 * 60000 : Math.abs(t.at - at) <= 10 * 60000); };
   // 슬랙만 있는 글 중 실사 글 · 매장명 없는 팀 내부 공지 글은 인입이 아닙니다(2026-11-13). 상담 시트 줄은 그대로 둡니다.
   const slackSkip = c => c.slackOnly && (isSilsa([c.question, c.questionRaw].join(' ')) || (isNoticeText([c.question, c.questionRaw].join(' ')) && !String(c.store || '').trim()));
-  const consultOk = c => ioOf(c.io) !== 'OB' && !STORE_EXCLUDE.test(c.store || '') && !isTestText(c.question || '') && !/^테스트/.test(String(c.question || '').trim()) && !slackSkip(c);
+  // 발신(OB)은 인입에서 뺍니다. 11/15부터 해피콜 '이슈로 접수' 건(인입 경로 · 출처 해피콜)은 넣습니다.
+  const happyIssue = c => isNewDay(c.at) && (String(c.route || '').trim() === '해피콜' || !!(c.slack && c.slack.source === '해피콜'));
+  const consultOk = c => (ioOf(c.io) !== 'OB' || happyIssue(c)) && !STORE_EXCLUDE.test(c.store || '') && !isTestText(c.question || '') && !/^테스트/.test(String(c.question || '').trim()) && !slackSkip(c);
   // 기준일(SHEET_RULE_FROM)부터: 시트(상담 내역)에 없는 슬랙 글은 건으로 세지 않고 데이터 점검(내부용)에만 둡니다.
   const slackOnlyItem = c => ({ id: `${String(c.at).slice(2, 10).replace(/-/g, '.')}-S${String(c.at).slice(11, 16).replace(':', '')}`, at: P(c.at), store: c.store || '—',
     cat: [c.middle, c.minor].filter(Boolean).join(' · ') || c.major || '미분류', status: c.status || '처리중', title: c.question || '', slackLink: (c.slack && c.slack.link) || '', noGo: true });
@@ -1018,10 +1021,12 @@ function buildModel(raw) {
     // 협업채널 워크플로 글(2026-11-12): 서버가 글 끝 요청자 표시 '@이름(팀)'의 팀 글자를 올린 팀으로 보냄(Offline Care_원격 · FC Ops · 설치 → 원격팀)
     const postTeam = sl && sl.source && sl.source !== '콜라비' && sl.source !== '시트만' ? (/현장/.test(sl.team || '') ? 'OC' : teamOf(sl.team) || (sl.source === '협업채널' ? requesterTeamOf(sl.team ? `(${sl.team})` : c.questionRaw || c.question) : '')) : '';
     // CS BOT 글(출처 = 콜라비 연동)은 무조건 고객센터(2026-11-13 결정)
-    const inflow = sl && sl.source === '콜라비' ? '고객센터' : /현장|원격/.test(c.route || '') || postTeam === 'OC' ? '원격팀' : postTeam === 'OS' ? 'OS' : '고객센터';
-    return { id: c.receipt || (c.slackOnly ? `${c.at.slice(2, 10).replace(/-/g, '.')}-S${c.at.slice(11, 16).replace(':', '')}` : `CS-${c.at}`), src: 'cs', inflow, slackOnly: !!c.slackOnly, dup: !!c.dup, at, date: ymd(at), store: st ? st.name : (c.verify ? '매장 확인 중' : (c.store || '—')), skey: st ? st.key : '', slack: sl,
+    // 11/15부터 건: 시트 '인입 경로' 칸 그대로(비어 있으면 해피콜 출처 → 해피콜, 그 밖 고객센터). 그 전 건은 예전 규칙.
+    const inflow = isNewDay(at) ? (String(c.route || '').trim() || (sl && sl.source === '해피콜' ? '해피콜' : '고객센터'))
+      : sl && sl.source === '콜라비' ? '고객센터' : /현장|원격/.test(c.route || '') || postTeam === 'OC' ? '원격팀' : postTeam === 'OS' ? 'OS' : '고객센터';
+    return { id: c.receipt || (c.slackOnly ? `${c.at.slice(2, 10).replace(/-/g, '.')}-S${c.at.slice(11, 16).replace(':', '')}` : `CS-${c.at}`), src: 'cs', inflow, slackOnly: !!c.slackOnly, dup: !!c.dup && !isNewDay(at), at, date: ymd(at), store: st ? st.name : (c.verify ? '매장 확인 중' : (c.store || '—')), skey: st ? st.key : '', slack: sl,
       channel: iss && CHANNELS.includes(iss.channel) ? iss.channel : CHANNELS.includes(aiChannel) ? aiChannel : guessChannel([c.major, c.middle, c.minor, c.question].join(' ')),
-      cat: [c.middle, c.minor].filter(Boolean).join(' · ') || c.major || '미분류', catAll: [c.major, c.middle, c.minor].filter(Boolean).join(' · '), io: ioOf(c.io), q: c.qTidy || c.question, a: c.qTidy ? (c.aTidy || '') : c.answer, qRaw: c.questionRaw || c.question, aRaw: c.answerRaw || c.answer, qFull: c.question, aFull: c.answer, tidy: !!c.qTidy, caseSum: c.caseSum || null, line: c.doneLine || '', caseKey: c.receipt || `${c.at}|${c.store}`, caseFix: c.caseFix || '', caseDone: !!(c.caseSum && /해결/.test(c.caseSum.state || '')) && c.caseFix !== '해제', route: c.route || '—', cx: c.cx || '',
+      cat: [c.middle, c.minor].filter(Boolean).join(' · ') || c.major || '미분류', catAll: [c.major, c.middle, c.minor].filter(Boolean).join(' · '), io: ioOf(c.io), q: c.qTidy || c.question, a: c.qTidy ? (c.aTidy || '') : c.answer, qRaw: c.questionRaw || c.question, aRaw: c.answerRaw || c.answer, qFull: c.question, aFull: c.answer, tidy: !!c.qTidy, caseSum: isNewDay(at) ? null : c.caseSum || null, summary: isNewDay(at) ? String(c.summary || '').trim() : '', line: c.doneLine || '', caseKey: c.receipt || `${c.at}|${c.store}`, caseFix: c.caseFix || '', caseDone: !!(c.caseSum && /해결/.test(c.caseSum.state || '')) && c.caseFix !== '해제', route: c.route || '—', cx: c.cx || '',
       method: c.method || '—', status: c.status || '처리중', doneAt: done, minutes: validMinutes(c.minutes != null ? c.minutes : done ? (done - at) / 60000 : null),
       // 기준일부터 토스플레이스 기록 = 시트 값만(상담 내역 토플 문의 · 완료 시각, 슬랙 접수 협업채널 링크 · 요약). 그 전은 예전대로(아래에서 토플 글을 붙임)
       toss: isNewDay(at) ? (c.tossAsked || (sl && sl.collabLink) ? { asked: P(c.tossAsked), done: P(c.tossDone), slack: sl && (sl.collabLink || sl.collabSum) ? { question: sl.collabSum || '', answer: '', channel: '협업채널', link: sl.collabLink || '' } : null } : null)
@@ -1282,8 +1287,7 @@ function buildModel(raw) {
   const CAT_MAP = Object.assign({ '프린터': '프린터', '키오스크': '키오스크', '프론트': '키오스크', '포스(PC,포스기)': '토스POS', '포스(태블릿)': '토스POS', '대시보드': '토스POS', '앱오더': '앱오더', '배달': '배달앱', '기타': '기타' }, raw.catMap || {});
   RECS.forEach(r => { if (r.src !== 'oc') return; r.catAll = r.catAll || r.cat || ''; if (/원격 지원$|자체 인입|오류|기능\s*관련/.test(r.catAll)) r.cat = `${CAT_MAP[r.channel] || '기타'} · ${/기능\s*관련|기능\s*문의/.test(r.catAll) ? '기능문의' : '원격 AS'}`; });
   foldDuplicates();
-  foldSameIssue();
-  linkReinflow();
+  // (2026-11-15) 같은 슬랙 글 묶기(한 번도 쓰인 적 없음) · 재인입 표시(짐작이라 틀릴 수 있음)는 없앰
   groupIssues();
   // 처리 상태 바로잡기(2026-11-13 결정): 아래 완료 근거가 하나라도 있으면 완료. 없으면 상태를 그대로 두고 상세에 '완료 근거 없음'.
   //   ① 슬랙 [처리 완료] 워크플로 · 처리완료 이모지(중복 글로 묶인 쪽 포함) ② 상담 시트 처리 완료 시각(R열) ③ 원격 결과 이모지 · 원장 상태 done
@@ -1365,6 +1369,7 @@ function groupIssues() {
   const textOf = i => { const r = recOf(i.receipt), c = /정리 중/.test(i.content || '') ? '' : i.content; return (r && r.q) || c || ''; };
   const list = ISSUES.map(i => ({ i, rec: recOf(i.receipt), w: issWords(textOf(i)), at: P(i.date) || new Date(0) })).sort((a, b) => a.at - b.at);
   const same = (a, b) => {
+    if (isNewDay(a.i.date) || isNewDay(b.i.date)) return false;   // (2026-11-15) 11/15부터 이슈는 시트 줄 그대로(묶지 않음)
     const sk = x => { const v = skey(x.rec ? x.rec.store : x.i.store); return /^(—|-|매장미기재)?$/.test(v) ? '' : v; }, ka = sk(a), kb = sk(b);
     if (!ka || !kb || ka !== kb) return false;
     if (a.rec && b.rec && a.rec === b.rec) return true;
@@ -1706,7 +1711,7 @@ let hcType = 'new';
 const src = k => k === 'oc' ? '<span class="src-tag src-oc">원격</span>' : k === 'both' ? '<span class="src-tag src-both">CS+원격</span>' : '<span class="src-tag src-cs">CS</span>';
 const statusBadge = s => `<span class="badge ${/^완료/.test(s) ? 'b-done' : /^확인중/.test(s) ? 'b-toss' : 'b-open'}">${esc(s)}</span>`;
 const methodBadge = m => `<span class="badge b-gray ${m === 'CS' ? 'm-cs' : m === '원격지원' ? 'm-remote' : m === '현장지원' ? 'm-visit' : ''}">${esc(m)}</span>`;
-const inflowTag = v => `<span class="tag ${v === '고객센터' ? 'in-cs' : v === '원격팀' ? 'in-oc' : v === '현장' ? 'in-vs' : v === 'OS' ? 'in-os' : 'in-etc'}">${esc(v || '—')}</span>`;
+const inflowTag = v => `<span class="tag ${v === '고객센터' ? 'in-cs' : v === '원격팀' ? 'in-oc' : v === '현장' ? 'in-vs' : v === 'OS' || v === 'SV' ? 'in-os' : 'in-etc'}">${esc(v || '—')}</span>`;
 const stage = r => r.status === '완료' ? '완료' : r.toss && !r.toss.done ? '토스플레이스 확인중' : r.visit && r.visit.pending ? '방문 예정' : r.remote && !r.remote.start ? '원격 대기' : r.remote ? '원격 진행 중' : '상담 처리중';
 // 상단 카드 필터(2026-11-13): 상담 내역 4개 탭 · 해피콜 전체. 카드를 누르면 아래 목록이 그 조건으로(기간 · 지점 검색과 함께), 다시 누르거나 '전체' 카드를 누르면 해제, 탭을 옮기면 초기화
 const CARDF = {};
@@ -2148,6 +2153,7 @@ function tlCards(r, proc) {
 }
 // 핵심 문제 한 줄: Claude 정리의 인입 핵심 → 문의를 줄인 말 → 문의유형. 인입 현황 상세 맨 위 · 처리 내역 '내용' 칸
 function recHeadline(r) {
+  if (isNewDay(r.at) && r.summary) return r.summary;   // (2026-11-15) 시트 상담 내역 '요약' 칸(AI가 쓰고, 손으로 고치면 그 값)
   const C = r.caseSum, core = (r.viaCollab ? compress(r.toss && r.toss.slack && r.toss.slack.question) : compress(r.q)).replace(/^\d{1,2}\/\d{1,2}\s*/, '').replace(/[.]\s*최종 해결 후.*$/, '') || r.cat;
   return String((C && C.lines && C.lines.intake) || core || '').replace(/[,·]?\s*(확인\s*중|진행\s*중|대기\s*중)$/, '');
 }
@@ -2213,8 +2219,10 @@ function viewRecords() {
   const rows = cf ? all.filter(r => r.inflow === cf) : all, p = paged('records', rows, 30);
   const back = NAV_BACK && NAV_BACK.view === 'overview' ? `<div style="margin-bottom:10px"><button class="btn" data-navback>← 전체현황으로 돌아가기</button></div>` : '';
   const n = v => all.filter(r => r.inflow === v).length, other = all.filter(r => !INFLOWS.includes(r.inflow)).length;
-  let h = back + `<div class="notice"><span class="k">인입</span><span class="t"><b>고객센터(상담 내역 · #컴포즈_tf) · 원격팀(현장 접수 포함) · OS</b>로 들어온 컴포즈 문의를 한 줄씩 모읍니다. <b>${SHEET_RULE_FROM.slice(5).replace('-', '/')}부터 들어온 건은 콜라비연동 시트 상담 내역 줄만</b>(처리 상태 · 처리 방식도 시트 값 그대로), 그 전 건은 그때 규칙 그대로(원격 AS · 현장 방문 기록을 같은 매장 + 가까운 시각 상담에 붙이고, 상담이 없는 기록은 <b>원격</b> 건으로) 보여 줍니다. 줄을 누르면 아래로 상세가 펼쳐집니다.</span></div>`;
-  h += `<div class="ov-tiles" style="--n:4">${tile('전체 인입', num(s.total), '건', `완료 ${num(s.done)} · 진행 중 ${num(s.open)}${other ? ` · 기타 채널 ${num(other)}` : ''}`, Object.assign({ grand: true }, cardOpt('records', '')))}${tile('고객센터', num(n('고객센터')), '건', '고객센터 상담 내역', Object.assign({ c: 'var(--accent)' }, cardOpt('records', '고객센터')))}${tile('원격팀', num(n('원격팀')), '건', '원격팀 · 현장이 직접 받은 건', Object.assign({ c: 'var(--orange)' }, cardOpt('records', '원격팀')))}${tile('OS', num(n('OS')), '건', 'OS팀이 올린 건', Object.assign({ c: 'var(--s2)' }, cardOpt('records', 'OS')))}</div>`;
+  let h = back + `<div class="notice"><span class="k">인입</span><span class="t"><b>고객센터(상담 내역 · #컴포즈_tf) · 원격팀(현장 접수 포함) · OS</b>로 들어온 컴포즈 문의를 한 줄씩 모읍니다. <b>${SHEET_RULE_FROM.slice(5).replace('-', '/')}부터 들어온 건은 콜라비연동 시트 상담 내역 줄만</b>(인입 채널은 '인입 경로' 칸 — 고객센터 · 원격팀 · 현장 · SV · 해피콜, 처리 상태 · 처리 방식 · 요약도 시트 값 그대로), 그 전 건은 그때 규칙 그대로(원격 AS · 현장 방문 기록을 같은 매장 + 가까운 시각 상담에 붙이고, 상담이 없는 기록은 <b>원격</b> 건으로) 보여 줍니다. 줄을 누르면 아래로 상세가 펼쳐집니다.</span></div>`;
+  // (2026-11-15) 11/15부터 생기는 인입 경로(현장 · SV · 해피콜)는 보는 기간에 건이 있을 때만 칸을 더 붙입니다(11/14까지 화면은 예전 4칸 그대로).
+  const extraIn = [['현장', '현장이 직접 받은 건', 'var(--green)'], ['SV', 'SV가 올린 건', '#0f766e'], ['해피콜', '해피콜 중 이슈로 접수한 건', 'var(--purple)']].filter(([k]) => n(k));
+  h += `<div class="ov-tiles" style="--n:${4 + extraIn.length}">${tile('전체 인입', num(s.total), '건', `완료 ${num(s.done)} · 진행 중 ${num(s.open)}${other ? ` · 기타 채널 ${num(other)}` : ''}`, Object.assign({ grand: true }, cardOpt('records', '')))}${tile('고객센터', num(n('고객센터')), '건', '고객센터 상담 내역', Object.assign({ c: 'var(--accent)' }, cardOpt('records', '고객센터')))}${tile('원격팀', num(n('원격팀')), '건', '원격팀 · 현장이 직접 받은 건', Object.assign({ c: 'var(--orange)' }, cardOpt('records', '원격팀')))}${extraIn.map(([k, sub, c]) => tile(k, num(n(k)), '건', sub, Object.assign({ c }, cardOpt('records', k)))).join('')}${tile('OS', num(n('OS')), '건', 'OS팀이 올린 건', Object.assign({ c: 'var(--s2)' }, cardOpt('records', 'OS')))}</div>`;
   h += `<div class="card"><div class="card-head"><h3>인입 목록</h3><span class="hint">${perLabel()} · 최신순 · ${p.page}/${p.pages}쪽</span></div>${filterBar('records', scoped, REC_TAGS, rows.length, { closeAll: true })}
     <div class="tbl-scroll"><table class="mcard">${REC_HEAD}<tbody>${p.rows.map(recRow).join('') || `<tr><td colspan="10">${empty('조건에 맞는 인입이 없습니다.')}</td></tr>`}</tbody></table></div>${pager('records', p)}</div>`;
   return h;
