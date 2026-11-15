@@ -1901,8 +1901,8 @@ function viewOverviewBase() {
   return h;
 }
 
-// 담당자별 처리(2026-11-15 바꿈, 내부용): 한 건을 한 사람에게만 셉니다 — 원격 담당자(담당 확인 · 원격ㅇㅇ 이모지, 없으면 원격팀 원장 담당)
-//   → 처리완료 이모지를 단 사람 → 상담사 → 담당 없음. 그래서 처리 건수를 더하면 이 기간 전체 건수와 같습니다.
+// 담당자별 처리(2026-11-15 바꿈, 내부용): 한 건을 한 사람에게만 셉니다 — 시트 상담 내역 '담당자'(컴포즈 시트 v2.65, 손으로 고친 값이 최종)
+//   → 원격 담당자(담당 확인 · 원격ㅇㅇ 이모지, 없으면 원격팀 원장 담당) → 처리완료 이모지를 단 사람 → 상담사 → 담당 없음. '미지정'은 빈칸으로 봅니다. 그래서 처리 건수를 더하면 이 기간 전체 건수와 같습니다.
 //   진행 중 = 처리 상태가 완료가 아닌 건, 착수까지 평균 = 원격 착수 시각이 있는 건,
 //   처리완료 표시 = tf 글에 처리완료(또는 CS안내) 이모지가 있는 건. (예전 '원격 담당' · '조치 등록' 칸은 서로 다른 건을 세어 합이 안 맞아 뺌)
 // 원격팀 명단에 없는 짧은 이름 → 전체 이름(2026-11-15 사용자: 성철 = 이성철). 화면 표시만 바꿉니다.
@@ -1912,7 +1912,8 @@ function ownerCard(rows) {
   const blank = () => ({ n: 0, open: 0, waits: [], marked: 0, noSlack: 0 });
   const m = {}, total = blank(), get = n => (m[n] = m[n] || Object.assign(blank(), { name: n }));
   rows.forEach(r => {
-    const sl = r.slack || {}, who = sl.owner || (r.remote && r.remote.owner) || sl.by || r.cx || '';
+    const named = n => (n && !/^미지정$/.test(fullName(n)) ? n : '');
+    const sl = r.slack || {}, who = named(r.csOwner) || named(sl.owner) || named(r.remote && r.remote.owner) || named(sl.by) || r.cx || '';
     const o = get(who ? clean(who) || who : '담당 없음');
     [o, total].forEach(x => {
       x.n++;
@@ -1925,7 +1926,7 @@ function ownerCard(rows) {
   if (!list.length) return '';
   const cell = (o, bold) => `<td class="num">${bold ? `<b>${o.n}</b>` : o.n}</td><td class="num"${o.open ? ' style="color:var(--orange);font-weight:700"' : ''}>${o.open || '·'}</td><td class="num">${o.waits.length ? fmtMin(avg(o.waits)) : '—'}</td><td class="num">${o.marked || '·'}</td>`;
   const miss = total.n - total.marked;
-  return `<div class="card"><div class="card-head"><h3>담당자별 처리</h3><span class="hint">한 건 = 한 사람(원격 담당 → 처리완료 이모지 단 사람 → 상담사) · ${perLabel()}</span></div>
+  return `<div class="card"><div class="card-head"><h3>담당자별 처리</h3><span class="hint">한 건 = 한 사람(시트 담당자 → 원격 담당 → 처리완료 이모지 단 사람 → 상담사) · ${perLabel()}</span></div>
     <div class="tbl-scroll"><table><thead><tr><th>담당자</th><th class="num">처리 건수</th><th class="num">진행 중</th><th class="num">착수까지 평균</th><th class="num">처리완료 표시</th></tr></thead><tbody>
     ${list.map(o => `<tr><td><b>${esc(o.name)}</b></td>${cell(o)}</tr>`).join('')}
     <tr style="border-top:2px solid var(--line)"><td><b>합계</b></td>${cell(total, true)}</tr></tbody></table></div>
