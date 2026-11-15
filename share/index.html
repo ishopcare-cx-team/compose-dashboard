@@ -1842,12 +1842,13 @@ const FINAL_LABEL = { cs: '자체 해결', remote: '자체 해결', visit: '자�
 REC_TAGS.push({ key: 'final', label: '최종 결과', get: r => FINAL_LABEL[finalOf(r)], order: ['자체 해결', '토플 확인'] });
 const recFilter = (k, rows, tags) => applyFilter(k, rows, { store: r => r.store, text: REC_TEXT, tags });
 // 기준일부터 건 · 시트에서 고친 줄은 시트 처리 방식(원격지원 · 현장지원 · 토스플레이스 확인)으로만 처리 내역에 넣습니다.
-const inProc = r => sheetRule(r) ? /원격|방문|현장|토스/.test(r.method || '') : !!(r.remote || r.visit || r.toss || /원격|방문|현장/.test(r.method || ''));
+// 처리 내역에는 인입 건이 모두 들어갑니다(2026-11-15). 예전 '넘어간 건만' 규칙은 없앰.
+const inProc = () => true;
 const procAt = r => (r.remote && r.remote.start) || (r.visit && r.visit.date) || r.at;
 const goProc = (r, html) => inProc(r) ? `<button class="go-proc" data-goproc="${esc(r.id)}" title="처리 내역에서 이 건 보기">${html}<span class="gp-arrow">→</span></button>` : html;
-const recRow = r => xrow(`rec:${r.id}`, `<td style="white-space:nowrap"><b>${esc(r.id)}</b>${caret(`rec:${r.id}`)}</td><td style="white-space:nowrap">${dt(r.at).slice(5)}</td><td>${inflowTag(r.inflow)}</td><td><b>${esc(r.store)}</b></td><td style="white-space:nowrap">${esc(r.cat)}</td><td style="white-space:nowrap">${esc(r.channel)}</td><td>${methodBadge(r.method)}</td><td class="num" title="${esc(r.minutesBy || '')}">${r.minutesBy === '상담 중 해결' ? '상담 중' : fmtMin(r.minutes)}</td><td>${statusBadge(r.status)}</td><td class="rmt">${r.verify && !r.skey && VIEWER.internal && mode !== 'share' ? `<span class="tag red" title="상담 내역 · 슬랙 접수에 매장 정보가 없고, 세 채널 검증으로도 확인 못 함(${esc(r.verify.reason || '')})">매장 미확인</span>` : ''}${r.special ? `<span class="tag warn" title="${r.special === '재점검 후 공유건' ? '원격팀이 스스로 재점검한 뒤 공유한 글' : '이모지를 나중에 한꺼번에 달아 처리 시각을 알 수 없는 원격팀 자체 해결 건'} · 건수에는 넣고 처리 시간에서는 뺌">${esc(r.special)}</span>` : ''}${r.prevRec ? '<span class="tag red" title="같은 매장 이전 건의 연장선">↩ 재인입</span>' : ''}${r.slackOnly ? '<span class="tag warn" title="고객센터 상담 내역에 아직 없음">슬랙만</span>' : ''}${r.src === 'oc' ? goProc(r, `<span class="src-tag src-oc" title="${r.cxHandoff ? 'CX가 원격팀에 넘겼지만 고객센터 상담 입력 없음' : '원격팀 · 현장이 직접 받은 건'}">${r.cxHandoff ? '→ CX 이관' : r.remote ? '원격' : '현장 단독'}</span>`) : r.remote && r.remote.linked ? goProc(r, '<span class="src-tag src-oc" title="원격팀 처리 기록과 이어짐">🔗 원격 기록</span>') : r.remote ? '<span class="tag warn" title="고객센터에 원격지원으로 적혔지만 원격팀 기록을 못 찾음">원격 기록 없음</span>' : '<span class="muted">—</span>'}</td>`, 10, () => recDetail(r));
+const recRow = r => xrow(`rec:${r.id}`, `<td style="white-space:nowrap"><b>${esc(r.id)}</b>${caret(`rec:${r.id}`)}</td><td style="white-space:nowrap">${dt(r.at).slice(5)}</td><td>${inflowTag(r.inflow)}</td><td><b>${esc(r.store)}</b></td><td style="white-space:nowrap">${esc(r.cat)}</td><td style="white-space:nowrap">${esc(r.channel)}</td><td>${methodBadge(r.method)}</td><td class="num" title="${esc(r.minutesBy || '')}">${r.minutesBy === '상담 중 해결' ? '상담 중' : fmtMin(r.minutes)}</td><td>${statusBadge(r.status)}</td><td class="rmt">${r.verify && !r.skey && VIEWER.internal && mode !== 'share' ? `<span class="tag red" title="상담 내역 · 슬랙 접수에 매장 정보가 없고, 세 채널 검증으로도 확인 못 함(${esc(r.verify.reason || '')})">매장 미확인</span>` : ''}${r.special ? `<span class="tag warn" title="${r.special === '재점검 후 공유건' ? '원격팀이 스스로 재점검한 뒤 공유한 글' : '이모지를 나중에 한꺼번에 달아 처리 시각을 알 수 없는 원격팀 자체 해결 건'} · 건수에는 넣고 처리 시간에서는 뺌">${esc(r.special)}</span>` : ''}${r.prevRec ? '<span class="tag red" title="같은 매장 이전 건의 연장선">↩ 재인입</span>' : ''}${r.slackOnly ? '<span class="tag warn" title="고객센터 상담 내역에 아직 없음">슬랙만</span>' : ''}${(o => o ? goProc(r, `<b>${esc(o)}</b>`) : '<span class="muted">—</span>')(ownerOf(r))}</td>`, 10, () => recDetail(r));
 // 2026-11-15: '구분'(수신 · 발신 · 슬랙) 칸은 뺌 — 발신(OB)은 인입에 안 들어가고, 고객센터 인입 뒤 다시 건 OB도 수신 건으로 보며, 어디서 들어왔는지는 '인입' 칸이 보여 줌
-const REC_HEAD = '<thead><tr><th>접수번호</th><th>접수일시</th><th>인입</th><th>매장명</th><th>문의유형</th><th>장비·채널</th><th>처리 방식</th><th class="num">처리 시간</th><th>처리상태</th><th class="rmt">원격 처리</th></tr></thead>';
+const REC_HEAD = '<thead><tr><th>접수번호</th><th>접수일시</th><th>인입</th><th>매장명</th><th>문의유형</th><th>장비·채널</th><th>처리 방식</th><th class="num">처리 시간</th><th>처리상태</th><th class="rmt">담당자</th></tr></thead>';
 
 /* ================================================================ 화면 */
 // 전체현황 최종 결과(2026-11-12 결정): 한 건은 한 칸에만 셉니다. 자체 해결(CS · 원격 · 현장, 해결 + 진행 중) + 토플 확인 = 전체 접수.
@@ -1874,7 +1875,8 @@ function viewOverviewBase() {
   // 해결 시간: 자체 해결로 완료된 건의 접수 → 처리 완료(토플 건 제외). 몇 건이 길면 평균이 크게 흔들려 중앙값을 크게 보여 줍니다.
   const solveMins = selfDone.map(r => r.minutes).filter(v => v != null && v >= 0);
   // 현장 방문 건수(2026-11-13, '원격 → 현장 방문 일 평균' 대신): 상담에 붙은 방문 + 인입 없는 AS 방문(처리 내역 현장방문). 설치 · 실사는 이미 빠져 있음
-  const visitN = rows.filter(r => r.visit).length + VISIT_ONLY.filter(v => inPeriod(v.at) && byStore(v)).length;
+  // (2026-11-15) 상담 없이 현장만 다녀온 방문은 대시보드에서 뺌 → 상담에 붙은 방문만 셈
+  const visitN = rows.filter(r => r.visit).length;
   let h = filterBar('overview', RECS.filter(r => inPeriod(r.at)), tags, rows.length);
   // 공유용도 내부용과 같은 카드 · 차트 · 문구를 씁니다(데이터는 이름 가림 · 정제 문장). 담당자별 처리처럼 사람 이름이 나오는 운영 카드만 내부용에서만.
   // 카드(2026-11-12 확정): 전체 접수 = 자체 해결 + 토플 확인(겹치지 않음). 해결 시간은 건수와 별개.
@@ -1908,14 +1910,20 @@ function viewOverviewBase() {
 //   처리완료 표시 = tf 글에 처리완료(또는 CS안내) 이모지가 있는 건. (예전 '원격 담당' · '조치 등록' 칸은 서로 다른 건을 세어 합이 안 맞아 뺌)
 // 원격팀 명단에 없는 짧은 이름 → 전체 이름(2026-11-15 사용자: 성철 = 이성철). 화면 표시만 바꿉니다.
 const OWNER_ALIAS = { '성철': '이성철' };
+// 사람 이름 표시: 괄호 뒤(팀 표기)를 빼고 짧은 이름은 명단으로 세 글자(규빈 → 김규빈). 시트 값은 그대로 둡니다.
+const ownerName = n => { const t = fullName(n); return OWNER_ALIAS[t] || t; };
+// 그 건의 담당자(2026-11-15): 시트 상담 내역 '담당자' → 원격 담당 이모지 → 원격팀 원장 담당(11/14까지 건) → 처리완료 이모지를 단 사람 → 상담사.
+//   '미지정'은 건너뜁니다. 담당자별 처리 · 처리 내역 '담당' · 인입 현황 '담당자'가 모두 이 규칙을 씁니다.
+function ownerOf(r) {
+  const named = n => (n && !/^미지정$/.test(fullName(n)) ? n : ''), sl = r.slack || {};
+  const who = named(r.csOwner) || named(sl.owner) || named(r.remote && r.remote.owner) || named(sl.by) || r.cx || '';
+  return who ? ownerName(who) : '';
+}
 function ownerCard(rows) {
-  const clean = n => { const t = fullName(n); return /^미지정$/.test(t) ? '담당 미지정' : OWNER_ALIAS[t] || t; };
   const blank = () => ({ n: 0, open: 0, waits: [], marked: 0, noSlack: 0 });
   const m = {}, total = blank(), get = n => (m[n] = m[n] || Object.assign(blank(), { name: n }));
   rows.forEach(r => {
-    const named = n => (n && !/^미지정$/.test(fullName(n)) ? n : '');
-    const sl = r.slack || {}, who = named(r.csOwner) || named(sl.owner) || named(r.remote && r.remote.owner) || named(sl.by) || r.cx || '';
-    const o = get(who ? clean(who) || who : '담당 없음');
+    const sl = r.slack || {}, o = get(ownerOf(r) || '담당 없음');
     [o, total].forEach(x => {
       x.n++;
       if (r.status !== '완료') x.open++;
@@ -2046,13 +2054,18 @@ function tlItems(r) {
   //   CS BOT 글의 단계는 글에 달린 이모지로 만듭니다: 원격지원 → 원격팀 지원 요청 · 담당자 확인 → 원격팀 처리 확인 · 토플 확인중 → 토스플레이스 이관
   //   · 토플 답변 → 토스플레이스 회신 · 방문예정 → 현장 방문 요청 · [처리 완료] 워크플로 → 최종 해결
   // ② 원격 지원 요청: 시각은 원격지원 이모지(초) → 원격 채널 글 시각(초) → 원장 시:분 순
-  if ((R && (R.linked || R.req)) || S.remoteAt) add(2, '원격팀 지원 요청', P(S.remoteAt) || (R && (R.start || R.handoff)), L.request || uniq(R && R.req) || '원격 지원 요청', '',
+  // (2026-11-15) 11/15부터 건 · 시트에서 고친 줄(sheetRule): 원격팀 단계에는 이모지를 찍은 사실(누가 · 언제)만 둡니다.
+  //   이모지를 잘못 찍거나 최종 해결한 사람이 다를 수 있어, 해결 내용과 해결한 사람(시트 담당자)은 최종 해결 칸에 씁니다.
+  const SR = sheetRule(r);
+  if (SR) { if (S.remoteAt) add(2, '원격지원 이모지', P(S.remoteAt), '원격지원 이모지를 찍음', '', `원격지원 이모지 ${dts(P(S.remoteAt))}`); }
+  else if ((R && (R.linked || R.req)) || S.remoteAt) add(2, '원격팀 지원 요청', P(S.remoteAt) || (R && (R.start || R.handoff)), L.request || uniq(R && R.req) || '원격 지원 요청', '',
     lines([(R && R.req) || '원격팀 지원 요청', S.remoteAt ? `원격지원 이모지 ${dts(P(S.remoteAt))}` : '', R && R.requester ? `요청: ${fullName(R.requester)}${R.requesterTeam ? ` (${R.requesterTeam})` : ''}` : '']));
   // ③ 원격팀 처리 확인 · 1차 조치(원격 채널 확인 이모지 또는 #컴포즈-tf 담당자 확인 이모지 시각 + 그때 본 내용 · 조치)
   const doneT0 = r.doneAt || P(S.doneAt), ackRaw = R && (R.ackAt || R.startAt), ackLate = ackRaw && doneT0 && ackRaw > doneT0;
   const ackT = ackLate ? null : ackRaw, owner = R && fullName(R.ackBy || R.startBy || R.owner);
   // 원격팀 처리 확인 내용 = 상담 시트 O열(조치 내용, 원격팀 이관 결과 · 2026-11-13). O열이 없으면 원장 조치
-  if (R && (R.linked || R.ackAt) && (ackT || R.action || oCol)) add(3, `원격팀 처리 확인${owner ? ` · ${owner}` : ''}${ackLate ? ` (기록 업로드 ${dts(ackRaw)})` : ''}`, ackT || null, L.first || oCol || uniq(R.action) || '원격 담당자 확인', '',
+  if (SR) { const who = ownerName(S.owner || (R && R.owner) || ''); if (R && R.ackAt) add(3, `원격 담당 이모지${who ? ` · ${who}` : ''}`, R.ackAt, '원격 담당 이모지를 찍음', '', lines([`원격 담당 이모지 ${dts(R.ackAt)}`, who ? `찍은 사람: ${who}` : ''])); }
+  else if (R && (R.linked || R.ackAt) && (ackT || R.action || oCol)) add(3, `원격팀 처리 확인${owner ? ` · ${owner}` : ''}${ackLate ? ` (기록 업로드 ${dts(ackRaw)})` : ''}`, ackT || null, L.first || oCol || uniq(R.action) || '원격 담당자 확인', '',
     lines([R.action || '원격 담당자 확인', R.ackAt ? `확인 ${dts(R.ackAt)}` : '', R.startAt && (!R.ackAt || R.startAt - R.ackAt >= 60000) ? `착수 ${dts(R.startAt)}` : '', owner ? `담당: ${owner}` : '']));
   // ④ 2차 대응: 원격으로 끝나지 않아 다음 대응으로 넘어간 것(현장 방문 요청 · 토스플레이스 이관 · 회신)
   if (V || S.visitAt) {
@@ -2081,8 +2094,9 @@ function tlItems(r) {
     //   최종 해결 = 전체 상담의 해결 결과(AI 처리 한 줄 '증상, 조치' 전체)
     let endText = oCol || [L.result, compress(result)].find(t => t && !clash(t, '완료')) || '처리 완료';
     if (shown.has(norm(finishKo(endText)))) endText = [r.line, R && R.line].find(t => t && !noContent(t) && !shown.has(norm(finishKo(t)))) || endText;
-    add(5, '최종 해결', endAt, endText, '해결',
-      lines([result || '처리 결과 기록 없음', r.minutesBy ? `완료 근거: ${r.minutesBy}` : '', r.minutes != null ? `처리 시간: ${r.minutesBy === '상담 중 해결' ? '상담 중 해결' : fmtMin(r.minutes)}` : '', V && !V.pending && V.equip ? `현장 장비: ${V.equip}` : '']));
+    const doneBy = SR ? ownerOf(r) : '';
+    add(5, `최종 해결${doneBy ? ` · ${doneBy}` : ''}`, endAt, endText, '해결',
+      lines([result || '처리 결과 기록 없음', doneBy ? `담당: ${doneBy}` : '', r.minutesBy ? `완료 근거: ${r.minutesBy}` : '', r.minutes != null ? `처리 시간: ${r.minutesBy === '상담 중 해결' ? '상담 중 해결' : fmtMin(r.minutes)}` : '', V && !V.pending && V.equip ? `현장 장비: ${V.equip}` : '']));
   } else if (r.noDoneEvidence) add(5, '완료 근거 없음', null, '처리 완료 기록(워크플로 · 이모지 · 처리 완료 시각 · 원격 결과 · 현장 완료 · 토플 해결)이 아직 없어요', '진행 중', '');
   return tlOrder(r, items);
 }
@@ -2222,7 +2236,7 @@ function sourceCompare() {
   return `<div class="src-compare"><b>원격 데이터 출처</b> · 지금 화면은 <b>${c.source === 'slack' ? '슬랙 직접 수집' : '원격팀 파일'}</b> 기준 · 슬랙 수집 ${esc(c.lastRun)}
     ${c.from && c.to ? `<div class="tbl-scroll"><table class="nowrap" style="margin-top:8px"><thead><tr><th>${esc(c.from)} ~ ${esc(c.to)}</th><th class="num">원격팀 파일</th><th class="num">슬랙 직접 수집</th><th>비교</th></tr></thead><tbody>
       <tr><td>원격 처리 전체</td><td class="num">${c.as.oc}</td><td class="num">${c.as.slack}</td><td>${diff(c.as.oc, c.as.slack)}</td></tr>
-      ${cats.map(k => { const a = (c.as.ocByCat || {})[k] || 0, b = (c.as.slackByCat || {})[k] || 0; return `<tr><td class="muted">· ${esc((PROC_BY[k] || {}).name || k)}</td><td class="num">${a}</td><td class="num">${b}</td><td>${diff(a, b)}</td></tr>`; }).join('')}
+      ${cats.map(k => { const a = (c.as.ocByCat || {})[k] || 0, b = (c.as.slackByCat || {})[k] || 0; return `<tr><td class="muted">· ${esc(OC_CAT_NAME[k] || k)}</td><td class="num">${a}</td><td class="num">${b}</td><td>${diff(a, b)}</td></tr>`; }).join('')}
       <tr><td>현장 방문</td><td class="num">${c.visits.oc}</td><td class="num">${c.visits.slack}</td><td>${diff(c.visits.oc, c.visits.slack)}</td></tr></tbody></table></div>` : ''}
     ${rep ? `<div class="hint">채널별 이번 수집: ${rep}${c.report.visits ? ' · ' + esc(c.report.visits) : ''}${c.report.toss ? ' · ' + esc(c.report.toss) : ''}${c.report.cand ? ' · ' + esc(c.report.cand) : ''}</div>` : ''}</div>`;
 }
@@ -2528,12 +2542,14 @@ function issueDetail(i) {
 }
 // 2026-11-14: 현상 As-Is는 적힌 줄에만(현장은 요청만 씀), 요청 내용 → 아이샵 조치 → 토스플레이스 답변(컴포즈 시트 v2.61)
 const vocDetail = v => { const panels = (String(v.asIs || '').trim() ? [panel('asis', '!', '현상 As-Is', v.asIs)] : []).concat([panel('tobe', '→', '요청 내용', v.toBe), panel('act', '✓', '아이샵 조치', v.action), panel('info', '💬', '토스플레이스 답변', v.tossAnswer)]); return `<div class="vp" style="--n:${panels.length}">${infoBox([['상황·빈도', v.condition], ['동일 이슈 매장', v.sameStores], ['담당', v.owner]])}${panels.join('')}</div>${v.slackLink ? `<a class="link" href="${esc(v.slackLink)}" target="_blank" rel="noopener">슬랙 원문 보기 ↗</a>` : ''}`; };
-// 처리 내역: 원격팀 대시보드와 같은 처리 구분 8가지. 원격팀 기록은 원격팀 분류(cat)를, CS 상담은 상담유형을 대응표 기준으로 나눕니다.
+// 처리 구분 = 처리 방식(2026-11-15 결정): 시트 상담 내역 '처리 방식'과 같은 이름(CS · 원격지원 · 현장지원 · 토스플레이스 확인, 완료 전이면 처리 중).
+//   예전에는 원격팀 업무 분류(원격AS · 온보딩 · 명의변경 · 메뉴등록 …)를 썼는데 처리 방식과 따로 놀아 바꿨습니다.
 const PROC = [
-  { key: 'as', name: '원격AS', color: '#34c759' }, { key: 'visit', name: '현장방문', color: '#ff3b30' }, { key: 'inquiry', name: '단순문의', color: '#0071e3' },
-  { key: 'tax', name: '세금계산서발급', color: '#af52de' }, { key: 'onboarding', name: '온보딩', color: '#5e5ce6' }, { key: 'transfer', name: '명의변경', color: '#ff9500' },
-  { key: 'menu', name: '메뉴등록', color: '#00c7be' }, { key: 'terminate', name: '해지·철거', color: '#8e8e93' }, { key: 'toss', name: '토스플레이스 확인', color: '#3182f6' }];
+  { key: 'cs', name: 'CS', color: '#0071e3' }, { key: 'remote', name: '원격지원', color: '#ff6b35' }, { key: 'visit', name: '현장지원', color: '#ff3b30' },
+  { key: 'toss', name: '토스플레이스 확인', color: '#3182f6' }, { key: 'open', name: '처리 중', color: '#8e8e93' }];
 const PROC_BY = Object.fromEntries(PROC.map(p => [p.key, p]));
+// 원격팀 원장 업무 분류 이름(데이터 연결 점검표에서만 씀)
+const OC_CAT_NAME = { as: '원격AS', visit: '현장방문', inquiry: '단순문의', tax: '세금계산서발급', onboarding: '온보딩', transfer: '명의변경', menu: '메뉴등록', terminate: '해지·철거', toss: '토스플레이스 확인' };
 // 상담 내역 D열 인입구분: 수신 = IB, 발신 = OB
 function ioOf(v) { v = String(v || '').trim(); return /^(수신|IB|인바운드)/i.test(v) ? 'IB' : /^(발신|OB|아웃바운드)/i.test(v) ? 'OB' : ''; }
 // 구분 표시(2026-11-13): 데이터 값(io: IB/OB)은 그대로 두고 화면에만 수신 · 발신. 고객센터 상담 내역에 없고 슬랙(워크플로 · 수기 · 협업채널 · 원격 채널)으로만 들어온 건은 '슬랙'
@@ -2541,32 +2557,9 @@ const IO_NAME = { IB: '수신', OB: '발신', SL: '슬랙' };
 const ioKey = r => r.io || (r.slackOnly || r.src === 'oc' ? 'SL' : '');
 const ioTag = v => v ? `<span class="tag ${v === 'OB' ? 'purple' : v === 'SL' ? 'warn' : ''}">${IO_NAME[v] || esc(v)}</span>` : '<span class="muted">—</span>';
 function procOf(r) {
-  // 기준일부터 건 · 시트에서 고친 줄(sheetRule): 시트 처리 방식 기준(붙은 원격 · 방문 · 토플 기록으로 바꾸지 않음)
-  if (sheetRule(r)) { const c0 = r.catAll || r.cat || '';
-    if (r.method === '토스플레이스 확인') return 'toss';
-    if (['현장지원', '방문점검', '현장 지원'].includes(r.method)) return 'visit';
-    if (/명의\s*변경|양도|양수/.test(c0)) return 'transfer';
-    if (/세금계산서/.test(c0)) return 'tax';
-    if (/폐업|해지|철거|위약금|회수/.test(c0)) return 'terminate';
-    if (/온보딩/.test(c0)) return 'onboarding';
-    if (/메뉴\s*등록/.test(c0)) return 'menu';
-    return r.method === '원격지원' ? 'as' : 'inquiry'; }
-  // 토플 확인 이모지(2026-11-12 결정)가 찍힌 건은 처리 방식처럼 처리 구분도 원격 · 현장 기록과 관계없이 토스플레이스 확인
-  //   (같은 매장 원격 기록이 붙어 'CS안내'가 원격AS로 세어지던 문제)
-  if (r.methodByToss) return 'toss';
-  if (r.visit || ['현장지원', '방문점검', '현장 지원'].includes(r.method)) return 'visit';
-  const c = r.catAll || r.cat || '';
-  if (r.remote && r.remote.linked && PROC_BY[r.remote.cat]) return r.remote.cat;
-  if (/명의\s*변경|양도|양수/.test(c)) return 'transfer';
-  if (/세금계산서/.test(c)) return 'tax';
-  if (/폐업|해지|철거|위약금|회수/.test(c)) return 'terminate';
-  if (/온보딩/.test(c)) return 'onboarding';
-  if (/메뉴\s*등록/.test(c)) return 'menu';
-  if (r.remote || r.method === '원격지원') return 'as';
-  if (r.toss) return 'toss';
-  return 'inquiry';
+  return ({ 'CS': 'cs', '원격지원': 'remote', '현장지원': 'visit', '토스플레이스 확인': 'toss' })[r.method] || (r.status === '완료' ? 'cs' : 'open');
 }
-const procTag = k => { const p = PROC_BY[k] || PROC_BY.inquiry; return `<span class="tag" style="background:${p.color}1f;color:${p.color};font-weight:700">${p.name}</span>`; };
+const procTag = k => { const p = PROC_BY[k] || PROC_BY.open; return `<span class="tag" style="background:${p.color}1f;color:${p.color};font-weight:700">${p.name}</span>`; };
 // 토스플레이스 확인 카드(상담에 붙은 것 · 상담 없이 슬랙에만 있는 것 공통)
 function tossOnlyFlow(t) {
   const q = t.slack || {};
@@ -2620,12 +2613,10 @@ const procSummary = x => { const r = x.rec, V = x.visit, T = x.tossOnly, ok = t 
   return ok(cleanText(head, 80)) || procSummaryOld(x); };
 const procSummaryOld = x => { const r = x.rec, L = (r && r.caseSum && r.caseSum.lines) || {}, ok = t => (t && !/정리\s*중$/.test(t) && !clash(t, x.status) ? String(t).replace(/^\d{1,2}\/\d{1,2}\s*/, '') : '');
   return ok(L.result) || ok(compress(x.text)) || (r && ok(compress(r.slack && r.slack.action))) || (r && ok(compress(r.remote && r.remote.action))) || (x.status === '완료' ? '처리 완료' : '') || (r && (ok(L.intake) || ok(compress(r.q)))) || '—'; };
-// 처리 내역 전체 목록(기간 무관): 원격 · 현장 · 토스플레이스로 넘어간 인입 + 인입 없는 토스플레이스 문의 · 현장 방문
+// 처리 내역 전체 목록(기간 무관, 2026-11-15): 인입 건 전부(처리 구분 = 처리 방식). 상담 없는 현장 방문 · 토플 글은 넣지 않습니다(장비 조회 · 원격팀 대시보드에서).
 function procList() {
-  return RECS.filter(inProc).map(r => ({ key: `rec:${r.id}`, id: r.id, at: procAt(r), store: r.store, proc: PROC_BY[procOf(r)].name, channel: r.channel, status: r.status,
-      owner: (r.visit && r.visit.by) || (r.remote && r.remote.owner) || r.cx || '', text: (r.caseSum && r.caseSum.result) || (r.slack && r.slack.action) || (r.remote && r.remote.action) || (r.visit && r.visit.action) || r.a || r.q, rec: r }))
-    .concat(TOSS_ONLY.filter(t => !t.asRec).map(t => ({ key: `tos:${t.id}`, id: t.id, at: t.at, store: t.store, proc: '토스플레이스 확인', channel: guessChannel(t.slack.question), status: t.done ? '완료' : '확인중(토스플레이스)', owner: '', text: t.slack.question || '토스플레이스 문의', tossOnly: t })))
-    .concat(VISIT_ONLY.map(v => ({ key: `vis:${v.id}`, id: v.id, at: v.at, store: v.store, proc: '현장방문', channel: guessChannel(v.equip), status: v.pending ? '예정' : '완료', owner: v.by || '', text: `현장 ${v.kind} · ${v.equip || ''}`, visit: v })))
+  return RECS.map(r => ({ key: `rec:${r.id}`, id: r.id, at: procAt(r), store: r.store, proc: PROC_BY[procOf(r)].name, channel: r.channel, status: r.status,
+      owner: ownerOf(r), text: (r.caseSum && r.caseSum.result) || (r.slack && r.slack.action) || (r.remote && r.remote.action) || (r.visit && r.visit.action) || r.a || r.q, rec: r }))
     .map(x => Object.assign(x, { date: ymd(x.at) }));
 }
 function viewProcess() {
@@ -2634,7 +2625,7 @@ function viewProcess() {
     { key: 'status', label: '처리상태', get: x => x.status }, { key: 'owner', label: '담당', get: x => x.owner }];
   const rows = applyFilter('process', all, { store: x => x.store, text: x => [x.id, x.text, x.proc, x.owner].join(' '), tags }), p = paged('process', rows, 30), cur = flt('process').tags.proc;
   let h = NAV_BACK && NAV_BACK.view !== 'process' ? `<div style="margin-bottom:10px"><button class="btn" data-navback>← ${esc((TITLES[NAV_BACK.view] || [NAV_BACK.view])[0])}으로 돌아가기</button></div>` : '';
-  h += `<div class="notice"><span class="k">처리 구분</span><span class="t">CS 안내로 끝난 건은 빼고 <b>원격 · 현장 방문 · 토스플레이스</b>로 넘어간 건만 모읍니다. 처리일시는 처리를 시작한 시각이고, 상세는 처리 시작부터의 조치 단계입니다. 칸을 누르면 그 구분만 봅니다.</span></div>`;
+  h += `<div class="notice"><span class="k">처리 구분</span><span class="t">인입 건을 모두 <b>처리 방식</b>(CS · 원격지원 · 현장지원 · 토스플레이스 확인)별로 모읍니다. 처리 방식 · 담당은 시트 상담 내역 값을 씁니다. 칸을 누르면 그 처리 구분만 봅니다.</span></div>`;
   h += `<div class="proc-tiles">${PROC.map(pc => { const n = all.filter(x => x.proc === pc.name).length; return `<button class="proc-tile ${cur === pc.name ? 'on' : ''}" data-proc="${pc.name}" style="--c:${pc.color}"><span>${pc.name}</span><b>${num(n)}</b></button>`; }).join('')}</div>`;
   h += `<div class="card"><div class="card-head"><h3>처리 내역</h3><span class="hint">${perLabel()} · 최신순 · 누르면 아래로 펼쳐짐</span></div>${filterBar('process', all, tags, rows.length, { closeAll: true })}
     <div class="tbl-scroll"><table class="mcard"><thead><tr><th>처리일시</th><th>처리 구분</th><th>매장</th><th>내용</th><th>장비·채널</th><th>담당</th><th>상태</th></tr></thead><tbody>
