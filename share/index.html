@@ -1917,13 +1917,14 @@ function viewOverviewBase() {
   const catsAll = countBy(rows.filter(r => r.src === 'cs'), r => r.cat), cats = catsAll.slice(0, 10), catsMore = catsAll.slice(10), catOpen = OPEN.has('ov:cats'), chs = countBy(rows, r => r.channel), ins = countBy(rows, r => r.inflow);
   h += `<div class="grid2 even grid-gap"><div class="card"><div class="card-head"><h3>인입 채널별</h3></div>${ins.length ? hbars(ins, ins[0][1]) : empty('없음')}</div>
     <div class="card"><div class="card-head"><h3>장비·채널별 ${src('both')}</h3><span class="hint">원격 건수 함께 표시</span></div>${chs.length ? hbars(chs.map(([k, v]) => [k, v, `원격 ${rows.filter(r => r.channel === k && r.remote).length}`]), chs[0][1]) : empty('없음')}</div></div>`;
-  h += `<div class="card hb-wide"><div class="card-head"><h3>문의유형 상위 ${src('cs')}</h3><div style="display:flex; align-items:center; gap:8px"><span class="hint">${catsMore.length ? (catOpen ? `전체 ${num(catsAll.length)}개` : `상위 10개 · 전체 ${num(catsAll.length)}개`) : `전체 ${num(catsAll.length)}개`}</span>${catsMore.length ? `<button class="btn sm" data-toggle-key="ov:cats" aria-expanded="${catOpen}">${catOpen ? '접기 ▴' : '전체보기 ▾'}</button>` : ''}</div></div>${cats.length ? hbars(cats, cats[0][1]) : empty('없음')}${catsMore.length && catOpen ? hbars(catsMore, cats[0][1]) : ''}</div>`;
-  // 반복 문의 매장: 누르면 그 매장의 최근 30일 기록이 아래로 펼쳐집니다.
-  const rep = countBy(base.filter(r => r.at >= addDay(TODAY, -30)), r => r.skey).filter(([, n]) => n >= 3).slice(0, 10);
-  h += `<div class="card"><div class="card-head"><h3>⚠ 반복 문의 매장</h3><span class="hint">최근 30일 3회 이상 · 상위 10곳 · 누르면 아래로 펼쳐짐</span></div>`
-    + (rep.length ? rep.map(([k, n]) => { const rs = base.filter(r => r.skey === k && r.at >= addDay(TODAY, -30)), key = `rep:${k}`, o = OPEN.has(key);
+  h += `<div class="card hb-wide"><div class="card-head"><h3>문의 유형 상위 ${src('cs')}</h3><div style="display:flex; align-items:center; gap:8px"><span class="hint">${catsMore.length ? (catOpen ? `전체 ${num(catsAll.length)}개` : `상위 10개 · 전체 ${num(catsAll.length)}개`) : `전체 ${num(catsAll.length)}개`}</span>${catsMore.length ? `<button class="btn sm" data-toggle-key="ov:cats" aria-expanded="${catOpen}">${catOpen ? '접기 ▴' : '전체보기 ▾'}</button>` : ''}</div></div>${cats.length ? hbars(cats, cats[0][1]) : empty('없음')}${catsMore.length && catOpen ? hbars(catsMore, cats[0][1]) : ''}</div>`;
+  // 문의 매장 상위(2026-11-16, 예전 '반복 문의 매장'): 위에서 고른 기간(일 · 주 · 월)에 많이 들어온 매장 순 상위 10곳(횟수 제한 없음).
+  //   누르면 그 기간 기록이 아래로 펼쳐집니다. 예전에는 고른 기간과 관계없이 '오늘부터 30일 · 3회 이상'이라 월별로 봐도 지난달 건이 섞였습니다.
+  const repAll = countBy(rows, r => r.skey), rep = repAll.slice(0, 10);
+  h += `<div class="card"><div class="card-head"><h3>문의 매장 상위</h3><span class="hint">${esc(perLabel())} · ${repAll.length > 10 ? `상위 10곳 · 전체 ${num(repAll.length)}곳` : `전체 ${num(repAll.length)}곳`} · 누르면 아래로 펼쳐짐</span></div>`
+    + (rep.length ? rep.map(([k, n]) => { const rs = rows.filter(r => r.skey === k), key = `rep:${k}`, o = OPEN.has(key);
       return `<div class="rep-wrap ${o ? 'open' : ''}"><div class="rep-row" data-open="${esc(key)}"><div class="rep-nm">${esc(storeName(k))}${caret(key)}</div><div class="rep-bar"><div class="rep-fill" style="width:${n / rep[0][1] * 100}%"></div></div><div class="rep-n"><b>${n}</b>건</div><div class="rep-cats">${countBy(rs, r => r.channel).slice(0, 3).map(([c, x]) => `<span class="tag">${esc(c)} ${x}</span>`).join('')}</div></div>`
-        + (o ? `<div class="rep-detail tbl-scroll"><table class="mcard">${REC_HEAD}<tbody>${rs.map(recRow).join('')}</tbody></table></div>` : '') + `</div>`; }).join('') : empty('반복 문의 매장이 없습니다.')) + `</div>`;
+        + (o ? `<div class="rep-detail tbl-scroll"><table class="mcard">${REC_HEAD}<tbody>${rs.map(recRow).join('')}</tbody></table></div>` : '') + `</div>`; }).join('') : empty('이 기간에 들어온 문의가 없습니다.')) + `</div>`;
   if (mode !== 'share') h += ownerCard(rows);
   return h;
 }
