@@ -533,6 +533,11 @@
   .chk-sum{display:flex; flex-wrap:wrap; gap:6px 16px; font-size:13px; color:var(--ink-soft)}
   .chk-grp{margin-top:14px} .chk-h{margin-bottom:6px}
   .chk-line{display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; padding:7px 0; border-top:1px solid var(--line-soft); font-size:13px}
+  .chk-act{margin-left:auto; display:flex; gap:6px} .chk-act:empty{display:none}
+  .chk-edit{margin:4px 0 10px; padding:12px 14px; border:1px solid var(--line); border-radius:12px; background:var(--canvas-soft, var(--canvas))}
+  .chk-edit-grid{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px} .chk-edit-grid label{margin-bottom:6px}
+  .chk-edit-bar{display:flex; flex-wrap:wrap; align-items:center; gap:8px; justify-content:flex-end} .chk-edit-bar .hint{margin-right:auto}
+  @media (max-width:820px){ .chk-edit-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)} }
   .chk-line select{font:inherit; font-size:13px; padding:4px 6px; border:1px solid var(--line); border-radius:8px; background:var(--canvas); color:var(--ink)}
   .pin-banner{margin-bottom:14px; align-items:center}
 </style>
@@ -550,7 +555,7 @@
       <button class="view-tab sub" data-v="process">처리 내역</button>
       <button class="view-tab sub" data-v="issues">통합 이슈</button>
       <button class="view-tab sub" data-v="voc">VOC</button>
-      <button class="view-tab sub internal" data-v="cands">데이터 연결</button>
+      <button class="view-tab sub internal" data-v="cands">데이터 점검<span class="src" id="chkNavN"></span></button>
     </div>
     <button class="view-tab parent" data-v="happy">해피콜</button>
     <div class="sub-tabs" id="hcSubTabs">
@@ -1032,7 +1037,9 @@ function buildModel(raw) {
       toss: isNewDay(at) ? (c.tossAsked || (sl && sl.collabLink) ? { asked: P(c.tossAsked), done: P(c.tossDone), slack: sl && (sl.collabLink || sl.collabSum) ? { question: sl.collabSum || '', answer: '', channel: '협업채널', link: sl.collabLink || '' } : null } : null)
         : c.tossAsked ? { asked: P(c.tossAsked), done: P(c.tossDone) } : null, tossMarked: !!c.tossAsked,
       // 기준일 전 시트 줄: 처리 방식 · 처리 상태 · 처리 완료 시각이 배포 때(PAST_SHEET)와 다르면 시트에서 고친 줄 → 시트 값 그대로
-      sheetEdited: !c.slackOnly && !isNewDay(at) && !!PAST_SHEET && PAST_SHEET[c.receipt || c.at] !== [c.method || '', c.status || '', c.doneAt || ''].join('|'), verify: c.verify || null, storeFrom: c.storeFrom || '', csOwner: c.owner || '', csAction: c.action || '', issue: iss || null, remote: null, visit: null };
+      sheetEdited: !c.slackOnly && !isNewDay(at) && !!PAST_SHEET && PAST_SHEET[c.receipt || c.at] !== [c.method || '', c.status || '', c.doneAt || ''].join('|'), verify: c.verify || null, storeFrom: c.storeFrom || '', csOwner: c.owner || '', csAction: c.action || '', issue: iss || null,
+      // 2026-11-16 데이터 점검 [고치기]: 시트 상담 내역 값 그대로(저장할 때 '바꾸기 전'으로 보냄)
+      sheetRaw: c.slackOnly ? null : { at: c.at, cx: c.cx || '', receipt: c.receipt || '', status: c.status || '', method: c.method || '', owner: c.owner || '', action: c.action || '', store: c.store || '', link: (sl && sl.link) || '' }, remote: null, visit: null };
   }).filter(Boolean);
   // (2026-11-15) 대시보드에서 매장 직접 지정(수집 시트 '매장 지정' 탭)은 없앴습니다. 매장명은 시트 상담 내역에서 고칩니다.
   // 같은 건을 두 번 올린 경우: 같은 매장이 5분 안에 다시 들어오면 한 건으로 합칩니다(5분이 넘으면 각각 따로).
@@ -1687,7 +1694,7 @@ const TITLES = {
   overview: ['전체현황', 'CX 상담 + 원격 처리 통합 현황'], records: ['인입 현황', '고객센터 · 원격팀 · 현장 · SV · 해피콜로 들어온 컴포즈 문의 전체'],
   process: ['처리 내역', '문의별 처리 방식 · 상태 · 담당'],
   issues: ['통합 이슈', '매장별 설정 오류 · 전체 오류'], voc: ['VOC', '매장 기능 개선 요청(현상 · 요청 · 조치)'],
-  cands: ['데이터 연결', '대시보드가 읽는 시트 · 슬랙 기록의 연결 상태(내부용)'], happy: ['해피콜', '유형별 해피콜 전체 현황'],
+  cands: ['데이터 점검', '대시보드에 문제로 보이는 건을 한 화면에서 처리(내부용)'], happy: ['해피콜', '유형별 해피콜 전체 현황'],
   hc_new: ['신규 설치 해피콜', '설치 다음 영업일 · 결제 · 출력 · 기사 응대 · 교육 이해도'], hc_edu: ['교육 및 기타 해피콜', '콜라비 [컴포즈OB] 통화 기록 · 기능 교육 · 매장 요청 사항'],
   hc_as: ['A/S 사후 해피콜', '콜라비 [컴포즈OB] 통화 기록'], hc_regular: ['정기 점검 해피콜', '콜라비 [컴포즈OB] 통화 기록'], hc_promo: ['프로모션·신메뉴 해피콜', '콜라비 [컴포즈OB] 통화 기록'],
   equip: ['장비 조회', '원격팀 장비 이력 + CS 사전체크'], stores: ['지점별', '매장 한 곳의 상담 · 원격 · 장비 · 설정'],  report: ['월간 보고서', '토스플레이스 보고용'],
@@ -1880,7 +1887,8 @@ function goOverviewCard(final) {
 }
 const cardClick = el => { const [v, k] = el.dataset.cardf.split('|'); CARDF[v] = !k || CARDF[v] === k ? '' : k; PG.records = PG.issue = PG.voc = PG.process = 1; render(); };
 document.addEventListener('keydown', e => { const cf = e.target.closest && e.target.closest('[data-cardf]'); if (cf && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); cardClick(cf); return; } const og = e.target.closest && e.target.closest('[data-ovgo]'); if (og && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); goOverviewCard(og.dataset.ovgo); } });
-function viewOverview() { return viewOverviewBase() + dataCheckCard(); }
+// (2026-11-16) 데이터 점검은 왼쪽 메뉴 '데이터 점검'으로 옮겼습니다.
+function viewOverview() { return viewOverviewBase(); }
 function viewOverviewBase() {
   const tags = REC_TAGS.filter(t => ['inflow', 'channel', 'method'].includes(t.key));
   const base = recFilter('overview', RECS, tags), rows = base.filter(r => inPeriod(r.at)), prev = base.filter(r => inPrevPeriod(r.at)), s = stats(rows), p = stats(prev);
@@ -2711,25 +2719,128 @@ function verifyListHtml() {
     <div class="hint" style="margin-bottom:8px">#원격요청 · #협업채널_컴포즈 · #컴포즈_tf에서 상담 시각 앞뒤 30분 안의 글을 찾아, 문의 글 핵심 낱말로 맞추고 결론이 안 나면 Claude가 연락처를 가린 두 글을 비교합니다. 일치하면 그 글의 매장으로 채우고 그 글을 상담에 붙입니다. 미확인 · 대기 건은 공유용에 넣지 않습니다.</div>
     ${list.length ? `<div class="tbl-scroll"><table><thead><tr><th>접수번호</th><th>상담 시각</th><th>결과</th><th>찾은 글</th><th>매장</th><th>판단</th><th>근거</th></tr></thead><tbody>${list.map(v => `<tr><td style="white-space:nowrap">${esc(v.receipt || '—')}</td><td style="white-space:nowrap">${esc(String(v.at).slice(5, 16))}</td><td><span class="tag ${v.state === '일치' ? 'ok' : v.state === '미확인' ? 'red' : 'warn'}">${esc(v.state)}</span></td><td style="white-space:nowrap">${esc(v.channel ? `${v.channel} ${String(v.postAt).slice(11, 16)}` : '—')}</td><td>${esc(v.store || '—')}</td><td>${esc(v.by || '—')}</td><td>${esc(v.reason || '')}</td></tr>`).join('')}</tbody></table></div>` : empty('검증할 상담이 아직 없습니다.')}</div>`;
 }
-function dataCheckHtml() {
-  if (!VIEWER.internal || mode === 'share') return '';
-  let h = verifyListHtml();
-  const L = LINKSTAT, AI = RAW.aiStatus;
-  if (VIEWER.internal && mode !== 'share' && AI) h += `<div class="card internal ai-status"><div class="card-head"><h3>AI 정리 진행 <span class="internal-mark">내부</span></h3><span class="hint">${esc(AI.at || '')} · ${AI.full ? '전체 수집' : '빠른 수집'}${AI.timeUp ? ' · 시간이 모자라 남은 건은 다음 수집으로' : ''}</span></div>
-    <div class="ai-lines">${[['원문 다듬기', AI.polish], ['건별 정리', AI.cases], ['이슈 정리', AI.issues], ['매장 검증', AI.verify], ['공유 문장', AI.share], ['상담 문장 정리(30분)', AI.words]].map(([k, v]) => `<div><span>${k}</span><b>${esc(v || '—')}</b></div>`).join('')}
+function aiStatusHtml() {
+  const AI = RAW.aiStatus;
+  if (!AI) return '';
+  return `<div class="card internal ai-status"><div class="card-head"><h3>AI 정리 진행 <span class="internal-mark">내부</span></h3><span class="hint">${esc(AI.at || '')} · ${AI.full ? '전체 수집' : '빠른 수집'}${AI.timeUp ? ' · 시간이 모자라 남은 건은 다음 수집으로' : ''}</span></div>
+    <div class="ai-lines">${[['원문 다듬기', AI.polish], ['건별 정리(한 줄 요약)', AI.cases], ['이슈 정리', AI.issues], ['매장 검증', AI.verify], ['공유 문장', AI.share], ['상담 문장 정리(30분)', AI.words]].map(([k, v]) => `<div><span>${k}</span><b>${esc(v || '—')}</b></div>`).join('')}
     ${AI.error ? `<div class="ai-err"><span>마지막 오류</span><b>${esc(AI.error)}</b></div>` : ''}</div></div>`;
-  h += `<div class="card internal"><div class="card-head"><h3>데이터 연결 상태 <span class="internal-mark">내부</span></h3><span class="hint">슬랙 기록은 상담일시 + 상담사로, 원격팀 기록은 같은 매장 + 가까운 시각(원격 AS ${LINK.AS_DAYS}일, 현장 방문 ${LINK.VISIT_DAYS}일)으로 연결</span></div>
-    <div class="ov-tiles" style="--n:5;margin-bottom:12px">${tile('슬랙 기록 연결', L.slackSince ? `${num(L.slackCov.linked)}/${num(L.slackCov.n)}` : `${num(L.slack.matched)}/${num(L.slack.total)}`, '건', `${L.slackSince ? `${esc(L.slackSince.slice(5))} 기록 시작 이후 상담 기준(이전 ${num(L.slackCov.before)}건 제외) · ` : ''}슬랙만 있음 ${num(L.slack.only || 0)}건 ·${L.slack.excludeReady ? `테스트 · X 이모지 ${num(L.slack.excluded || 0)}건 뺌` : '테스트 · X 이모지: 슬랙 토큰 필요'}`, { c: 'var(--accent)' })}${tile('원격 AS 연결', `${num(L.asLinked)}/${num(L.as)}`, '건', `원격 ${num(L.asOrphan)}건(CS 상담 없음)`, { c: 'var(--s2)' })}${tile('방문 AS 연결', `${num(L.visitLinked)}/${num(L.visitAs)}`, '건', '현장 방문 AS 기준', { c: 'var(--s3)' })}${tile('CS만 있는 원격지원', num(L.csOnly), '건', '원격팀 기록과 연결 안 됨', { c: 'var(--orange)' })}${tile('매장 리스트에 없는 매장', num(L.unlisted.length), '곳', '원격 기록에만 있는 매장명', { c: 'var(--red)' })}</div>
-    ${L.unlisted.length ? `<div class="hint">매장명 확인 필요: ${L.unlisted.slice(0, 15).map(esc).join(', ')}${L.unlisted.length > 15 ? ' 외' : ''}</div>` : ''}${LINKSTAT.toss ? `<div class="hint" style="margin-top:6px">토스플레이스 문의(슬랙): ${num(LINKSTAT.toss)}건 중 상담에 연결 ${num(LINKSTAT.tossLinked)}건 · 나머지는 처리 내역 '토스플레이스 확인'</div>` : ''}${sourceCompare()}</div>`;
-  return h;
 }
-// 2026-11-15: 슬랙 후보(협업채널 글을 대시보드에서 VOC · 이슈로 등록)는 없앴습니다. VOC · 통합 이슈는 컴포즈 슬랙 GAS가 콜라비연동 시트에 넣은 줄만 씁니다.
-//   이 탭은 내부용 데이터 연결 상태(매장 검증 · AI 정리 · 연결 상태)만 보여 줍니다.
+
+// ── 데이터 점검(내부용, 2026-11-16): 대시보드에 문제로 보이는 건을 한 화면에서 처리 ──
+//  · 확인할 것: 처리 중(팔로업) · 처리 방식 빈칸 · 완료인데 담당자 빈칸 · 매장명 확인 · 인입구분 빈칸 · 시트에 없는 tf 글 · 시트에 없는 협업채널 글.
+//    시트에서 고치면 다음 갱신에 저절로 빠집니다.
+//  · [고치기]: 처리 상태 · 처리 방식 · 담당자 · 조치 내용(· 매장명)을 고쳐 저장 → 콜라비연동 시트 '대시보드 입력' 탭 → 컴포즈 시트(v2.68)가 1분 안에
+//    상담 내역에, 완료면 컴포즈 슬랙 봇(v0.9.7)이 tf 글에 처리완료 이모지 · [조치 내용]. 저장은 스크립트 속성 CTD_EDITORS 명단만(VIEWER.editor).
+//  · [확인 완료]: 고칠 게 없는 건. 시트 '대시보드 확인' 탭에 남고, 그 줄을 지우거나 [되돌리기]로 다시 보입니다. 처리 중 건은 그날만([오늘 확인]).
+//  저장 · 확인한 값은 시트에 반영돼 다시 읽을 때까지 이 화면에 먼저 보입니다(SAVED · CHECK_LOCAL).
+const CHECKED = new Map(), CHECK_LOCAL = new Map(), SAVED = {}, DRAFT = {};
+let CHK_MSG = '';
+const EDIT_STATUSES = ['처리중', '확인중(토스플레이스)', '완료'], EDIT_METHODS = ['원격지원', 'CS안내', '방문점검', '토스플레이스 확인'];
+const canEdit = () => !!(IS_GAS && VIEWER.internal && VIEWER.editor && mode !== 'share');
+const sheetRec = r => !!(r && r.src === 'cs' && !r.slackOnly && r.sheetRaw);
+function isChecked(key) { const l = CHECK_LOCAL.get(key); if (l && Date.now() - l.t < 15 * 60000) return l.on; return CHECKED.has(key); }
+function syncChecks(raw) { CHECKED.clear(); (raw.checked || []).forEach(x => CHECKED.set(x.key, x)); }
+// 저장한 값: 시트 값이 따라올 때까지(최대 20분) 화면에 먼저 반영
+function applySaved() {
+  Object.keys(SAVED).forEach(id => {
+    const x = SAVED[id], r = RECS.find(y => y.id === id);
+    if (!r || Date.now() - x.t > 20 * 60000) { delete SAVED[id]; return; }
+    const s = r.sheetRaw || {}, f = x.f;
+    const caught = (!f.status || s.status === f.status) && (!f.method || s.method === f.method) && (!f.owner || s.owner === f.owner) && (!f.action || s.action === f.action);
+    if (caught) { delete SAVED[id]; return; }
+    if (f.status) { r.status = f.status; if (f.status === '완료' && !r.doneAt) r.doneAt = new Date(x.t); }
+    if (f.method) r.method = f.method;
+    if (f.owner) r.csOwner = f.owner;
+    if (f.action) r.csAction = f.action;
+    r.savedBy = x.by || '저장됨';
+  });
+}
+function checkGroups() {
+  const now = P(RAW && RAW.now) || new Date(), today = ymd(now);
+  const age = r => { const h = (now - r.at) / 36e5; return h < 24 ? `${Math.max(1, Math.round(h))}시간째` : `${Math.floor(h / 24)}일째`; };
+  const link = r => r.slackLink ? ` <a class="link" href="${esc(r.slackLink)}" target="_blank" rel="noopener">슬랙 ↗</a>` : '';
+  return [
+    { k: 'open', name: '처리 중 (팔로업)', fix: true, daily: today, hint: '완료가 아닌 상담이에요. 끝났으면 [고치기]에서 처리 상태 · 조치 내용을 넣고, 아직 기다리는 중이면 [오늘 확인].',
+      rows: RECS.filter(r => sheetRec(r) && r.status !== '완료').sort((a, b) => a.at - b.at), extra: r => `<span class="tag ${now - r.at > 864e5 ? 'red' : 'warn'}">${age(r)}</span>` },
+    { k: 'method', name: '처리 방식 빈칸', fix: true, hint: '처리 내역에 미분류로 보여요(11/15부터 건). [고치기]에서 처리 방식을 골라 주세요.', rows: RECS.filter(r => sheetRec(r) && isNewDay(r.at) && r.method === '미분류') },
+    { k: 'owner', name: '완료인데 담당자 빈칸', fix: true, hint: '시트 담당자가 비어 있어요(11/15부터 건). [고치기]에서 실제 처리한 사람을 넣어 주세요.', rows: RECS.filter(r => sheetRec(r) && isNewDay(r.at) && r.status === '완료' && !String(r.csOwner || '').trim()) },
+    { k: 'store', name: '매장명 확인', fix: true, hint: '매장 리스트와 맞지 않아 지점별 · 장비 조회에 안 붙어요. 상담 내역 매장명을 고쳐 주세요.', rows: RECS.filter(r => !r.skey) },
+    { k: 'io', name: '인입구분(D열) 빈칸', hint: '상담 내역 D열에 수신 · 발신을 적어 주세요(시트에서).', rows: RECS.filter(r => sheetRec(r) && !r.io) },
+    { k: 'slack', name: '시트에 없는 tf 글', hint: '슬랙 접수에는 있지만 상담 내역에 없어 세지 않아요. 넣을 건이면 상담 내역에 줄을 넣고, 아니면 [확인 완료].', rows: SLACK_ONLY || [],
+      extra: r => `<span class="muted">${esc(cleanText(r.title || '', 60))}</span>${link(r)}` },
+    { k: 'collab', name: '시트에 없는 협업채널 글', hint: '협업채널 [개선요청] · [오류] 글인데 시트에 없어 VOC · 통합 이슈에 안 보여요. 이미 다른 줄로 들어가 있으면 [확인 완료].', rows: COLLAB_ONLY || [],
+      extra: r => `<span class="muted">${esc(r.title || '')}</span>${link(r)}` }
+  ].map(g => Object.assign(g, { keyOf: r => `${g.k}|${r.id}${g.daily ? '|' + g.daily : ''}` }));
+}
+function checkCount() { return RECS && VIEWER.internal && mode !== 'share' ? checkGroups().reduce((n, g) => n + g.rows.filter(r => !isChecked(g.keyOf(r))).length, 0) : 0; }
+function ownerNames() {
+  const set = new Set(Object.values(PEOPLE || {}));
+  RECS.forEach(r => { [r.csOwner, r.cx].forEach(n => { const v = fullName(String(n || '').trim()); if (v && v.length <= 4 && !/\*/.test(v)) set.add(v); }); });
+  return [...set].filter(Boolean).sort((a, b) => a.localeCompare(b, 'ko'));
+}
+function chkEditForm(r) {
+  const s = r.sheetRaw, d = DRAFT[r.id] || (DRAFT[r.id] = { status: s.status || '처리중', method: s.method || '', owner: s.owner || '', action: s.action || '', store: '' });
+  const opt = (list, v, blank) => (blank ? `<option value="">${blank}</option>` : '') + list.map(x => `<option${x === v ? ' selected' : ''}>${esc(x)}</option>`).join('');
+  return `<div class="upd-form chk-edit" data-chk-form="${esc(r.id)}">
+    <div class="chk-edit-grid">
+      <label>처리 상태<select data-chk-f="status">${opt(EDIT_STATUSES, d.status)}</select></label>
+      <label>처리 방식<select data-chk-f="method">${opt(EDIT_METHODS, d.method, '— 고르기')}</select></label>
+      <label>담당자<input data-chk-f="owner" list="chkOwners" value="${esc(d.owner)}" placeholder="실제 처리한 사람"></label>
+      ${r.skey ? '' : `<label>매장명<input data-chk-f="store" value="${esc(d.store)}" placeholder="컴포즈커피 OO점"></label>`}
+    </div>
+    <label>조치 내용<textarea data-chk-f="action" rows="2" placeholder="실제로 한 일(컴포즈 본사 화면에도 보여요)">${esc(d.action)}</textarea></label>
+    <div class="chk-edit-bar"><span class="hint">저장하면 1분 안에 시트 상담 내역에 들어가요. 완료로 저장하면 슬랙 tf 글에도 처리완료 이모지 · [조치 내용]이 남아요.</span>
+      <button class="btn sm" data-chk-cancel="${esc(r.id)}">닫기</button><button class="btn sm primary" data-chk-save="${esc(r.id)}">저장</button></div>
+    <datalist id="chkOwners">${ownerNames().map(n => `<option value="${esc(n)}">`).join('')}</datalist></div>`;
+}
+function chkLine(g, r) {
+  const key = g.keyOf(r), open = OPEN.has('edit:' + r.id);
+  const id = r.excludeWhy || r.noGo || !RECS.includes(r) ? `<b>${esc(r.id)}</b>` : `<button class="linkish" data-gorec="${esc(r.id)}">${esc(r.id)}</button>`;
+  const acts = canEdit() ? [g.fix && sheetRec(r) ? `<button class="btn sm${open ? ' on' : ''}" data-chk-edit="${esc(r.id)}">${open ? '접기' : '고치기'}</button>` : '',
+    `<button class="btn sm" data-chk-ok="${esc(key)}" data-note="${esc([g.name, r.store].filter(Boolean).join(' · '))}">${g.daily ? '오늘 확인' : '확인 완료'}</button>`].join('') : '';
+  return `<div class="chk-line">${id}<span class="muted">${dt(r.at).slice(5)}</span><span>${esc(r.store)}</span><span class="muted">${esc(r.cat || '')}</span>${statusBadge(r.status)}${g.extra ? g.extra(r) : ''}${r.savedBy ? '<span class="tag ok">저장됨 · 시트 반영 중</span>' : ''}<span class="chk-act">${acts}</span></div>`
+    + (open && canEdit() && sheetRec(r) ? chkEditForm(r) : '');
+}
+function chkFold(key, title, body) {
+  const o = OPEN.has(key);
+  return `<div class="card" style="margin-top:16px"><div class="card-head"><h3>${title}</h3><button class="btn sm" data-toggle-key="${key}" aria-expanded="${o}">${o ? '접기 ▴' : '펼치기 ▾'}</button></div>${o ? body : ''}</div>`;
+}
 function viewCands() {
   if (!VIEWER.internal) return '<div class="notice"><span class="k">내부용</span><span class="t">회사 계정 화면에서만 볼 수 있습니다.</span></div>';
-  let h = `<div class="notice"><span class="k">데이터 연결</span><span class="t">대시보드는 <b>콜라비연동 시트</b>(상담 내역 · 슬랙 접수 · VOC · 통합 이슈 탭)를 씁니다. <b>${SHEET_RULE_FROM.slice(5).replace('-', '/')}부터 들어온 건</b>은 시트 값 그대로(시트에 없는 글은 전체현황 아래 데이터 점검), 그 전 건은 그때 규칙 그대로 보여 줍니다. 시트에서 고치거나 지우면 다음 갱신(5분, 바로 보려면 '슬랙 지금 가져오기')에 반영됩니다.</span></div>`;
-  h += dataCheckHtml();
+  const groups = checkGroups(), vis = g => g.rows.filter(r => !isChecked(g.keyOf(r))), total = groups.reduce((n, g) => n + vis(g).length, 0);
+  const done = []; groups.forEach(g => g.rows.forEach(r => { const k = g.keyOf(r); if (isChecked(k)) done.push({ g, r, k }); }));
+  let h = `<div class="notice"><span class="k">데이터 점검</span><span class="t">대시보드에 문제로 보이는 건을 모았어요. 고칠 건은 <b>[고치기]</b>(콜라비연동 시트에 저장 → 1분 안에 상담 내역, 완료면 슬랙 tf 글에도 처리완료 표시), 고칠 게 없으면 <b>[확인 완료]</b>. 시트에서 직접 고쳐도 다음 갱신(5분, 바로 보려면 '슬랙 지금 가져오기')에 빠져요.${canEdit() ? '' : ' <b>저장 · 확인은 데이터 점검 담당자만</b> 할 수 있어요(보기만).'}</span></div>`;
+  if (CHK_MSG) h += `<div class="notice ok"><span class="k">저장</span><span class="t">${esc(CHK_MSG)}</span></div>`;
+  h += `<div class="card"><div class="card-head"><h3>확인할 것 <span class="tag ${total ? 'warn' : 'ok'}">${total ? num(total) + '건' : '없음'}</span></h3><span class="hint">${DATA_FROM} 이후 · 내부용</span></div>
+    <div class="chk-sum">${groups.map(g => `<span>${esc(g.name)} <b>${num(vis(g).length)}</b></span>`).join('')}</div>
+    ${groups.filter(g => vis(g).length).map(g => `<div class="chk-grp"><div class="chk-h"><b>${esc(g.name)}</b> <span class="hint">${esc(g.hint)}</span></div>${vis(g).slice(0, 60).map(r => chkLine(g, r)).join('')}${vis(g).length > 60 ? `<div class="muted">외 ${num(vis(g).length - 60)}건</div>` : ''}</div>`).join('') || empty('지금 확인할 것이 없어요.')}</div>`;
+  h += chkFold('chk:done', `확인 완료한 것 <span class="tag">${num(done.length)}건</span>`, done.length ? done.map(({ g, r, k }) => { const c = CHECKED.get(k) || {}; return `<div class="chk-line"><b>${esc(r.id)}</b><span class="muted">${esc(g.name)}</span><span>${esc(r.store)}</span><span class="muted">${esc([c.by, String(c.at || '').slice(5, 16)].filter(Boolean).join(' · ') || '방금')}</span><span class="chk-act">${canEdit() ? `<button class="btn sm" data-chk-undo="${esc(k)}">되돌리기</button>` : ''}</span></div>`; }).join('') : empty("아직 없어요(시트 '대시보드 확인' 탭에 남아요)."));
+  h += chkFold('chk:excl', `대시보드에서 뺀 건 <span class="tag">${num(REC_EXCLUDED.length)}건</span>`, `<div class="hint" style="margin-bottom:6px">시트 '대시보드 제외' 탭(A열 번호) · 코드 RECORD_FIXES로 인입 현황 · 처리 내역 · 집계에서 뺀 건이에요. 다시 넣으려면 그 탭에서 줄을 지워요.</div>`
+    + (REC_EXCLUDED.map(r => `<div class="chk-line"><b>${esc(r.id)}</b><span class="muted">${dt(r.at).slice(5)}</span><span>${esc(r.store)}</span><span class="muted">${esc(r.excludeWhy || '')}</span></div>`).join('') || empty('없어요.')));
+  h += chkFold('chk:auto', '자동 작업 상태 <span class="hint">AI 한 줄 요약 · 매장 찾기가 도는지</span>', aiStatusHtml() + verifyListHtml());
   return h;
+}
+function chkSave(id, btn) {
+  const r = RECS.find(x => x.id === id); if (!r || !sheetRec(r) || !canEdit()) return;
+  const s = r.sheetRaw, d = DRAFT[id] || {}, pick = (k, v) => String(d[k] !== undefined ? d[k] : v || '').trim();
+  const fields = { status: pick('status', s.status), method: pick('method', s.method), owner: pick('owner', s.owner), action: pick('action', s.action), store: pick('store', '') };
+  btn.disabled = true; btn.textContent = '저장 중…';
+  google.script.run.withSuccessHandler(res => {
+    const names = { '처리 상태': 'status', '처리 방식': 'method', '담당자': 'owner', '조치 내용': 'action', '매장명': 'store' }, f = {};
+    (res.changed || []).forEach(name => { const k = names[name]; if (k) f[k] = fields[k]; });
+    SAVED[id] = { f, t: Date.now(), by: res.by }; delete DRAFT[id]; OPEN.delete('edit:' + id);
+    CHK_MSG = `${id} ${(res.changed || []).join(' · ')} 저장(${res.by}) — 1분 안에 시트 상담 내역에 들어가요.${f.status === '완료' ? ' 슬랙 tf 글에도 처리완료 이모지가 붙어요.' : ''}`;
+    applySaved(); render();
+  }).withFailureHandler(err => { btn.disabled = false; btn.textContent = '저장'; alert('저장하지 못했습니다: ' + ((err && err.message) || err)); })
+    .saveDashboardInput({ at: s.at, cx: s.cx, receipt: s.receipt, link: s.link, fields, before: { status: s.status, method: s.method, owner: s.owner, action: s.action, store: '' } });
+}
+function chkMark(key, note, on, btn) {
+  if (!canEdit()) return;
+  btn.disabled = true;
+  const done = res => { CHECK_LOCAL.set(key, { on, t: Date.now() }); if (on) CHECKED.set(key, { key, by: (res && res.by) || '', at: (res && res.at) || '' }); else CHECKED.delete(key); render(); };
+  const run = google.script.run.withSuccessHandler(done).withFailureHandler(err => { btn.disabled = false; alert('저장하지 못했습니다: ' + ((err && err.message) || err)); });
+  if (on) run.markDataChecked(key, note); else run.unmarkDataChecked(key);
 }
 
 /* 월간 보고서: 원격팀 보고서 양식(머리말 · KPI · 번호 매긴 절) · 지점명 · 내용으로 좁혀 볼 수 있음(인쇄에는 검색 줄이 빠짐) */
@@ -3013,34 +3124,6 @@ function pinBanner() {
   return `<div class="notice pin-banner"><span class="k">📌 공지</span><span class="t">${pins.slice(0, 3).map(u => `<a href="#" class="link" data-pin-go="${esc(u.id)}"><b>${esc(u.title)}</b></a>${u.body ? ` <span class="muted">· ${esc(cleanText(u.body, 60))}</span>` : ''}`).join('<br>')}${pins.length > 3 ? `<br><span class="muted">외 ${num(pins.length - 3)}건</span>` : ''}</span><button class="btn sm" style="margin-left:auto" data-pin-hide="${esc(sig)}" title="이 창에서는 다시 보이지 않음(고정 글이 바뀌면 다시 보임)">닫기</button></div>`;
 }
 
-// 데이터 점검(내부용, 전체현황 맨 아래): 숫자가 어긋나는 원인이 되는 줄을 모아 보여 줍니다. 번호를 누르면 그 건으로 이동
-function dataCheckCard() {
-  if (!VIEWER.internal || mode === 'share') return '';
-  const now = P(RAW && RAW.now) || new Date();
-  const go = r => `<button class="linkish" data-gorec="${esc(r.id)}">${esc(r.id)}</button>`;
-  const line = (r, extra) => `<div class="chk-line">${r.excludeWhy || r.noGo ? `<b>${esc(r.id)}</b>` : go(r)}<span class="muted">${dt(r.at).slice(5)}</span><span>${esc(r.store)}</span><span class="muted">${esc(r.cat)}</span>${statusBadge(r.status)}${extra || ''}</div>`;
-  const groups = [
-    { k: '매장 미확인', hint: '콜라비연동 시트 상담 내역의 매장명을 고쳐 주세요(다음 갱신에 반영)', rows: RECS.filter(r => !r.skey) },
-    { k: '인입구분(D열) 빈 줄', hint: '상담 시트 D열에 수신 · 발신을 적어 주세요', rows: RECS.filter(r => r.src === 'cs' && !r.slackOnly && !r.io) },
-    { k: '처리 중 24시간 넘음', hint: '처리 상태를 확인해 주세요(상담 시트 L열 · 슬랙 이모지)', rows: RECS.filter(r => r.status !== '완료' && now - r.at > 864e5) },
-    { k: '원격지원인데 원격 기록 없음', hint: '원격팀 기록과 이어지지 않은 건(11/14까지 건만, 11/15부터는 원격팀 기록을 붙이지 않음)', rows: RECS.filter(r => r.src === 'cs' && !isNewDay(r.at) && r.method === '원격지원' && !(r.remote && r.remote.linked)) },
-    { k: '같은 슬랙 글 합침', hint: '같은 CS BOT 글에 상담 시트 줄이 여러 개라(같은 콜의 상태 변경) 1건으로 셌어요(확인용)', rows: RECS.filter(r => r.sameIds), extra: r => `<span class="muted">+ ${esc(r.sameIds.join(', '))}</span>` },
-    { k: '상태 보정', hint: '상담 시트 · 슬랙 상태와 화면 상태가 달라요. 완료 근거를 찾아 완료로 봤어요(확인용)', rows: RECS.filter(r => r.statusRaw && r.statusRaw !== r.status), extra: r => `<span class="muted">${esc(r.statusRaw)} → ${esc(r.status)} · ${esc(r.statusFixed || r.statusFrom || (r.statusByCase ? '건별 정리 해결' : ''))}</span>` },
-    { k: '완료 근거 없음', hint: '처리 완료 기록(워크플로 · 이모지 · R열 · 원격 결과 · 현장 완료 · 토플 해결)이 없어 처리중으로 둔 건', rows: RECS.filter(r => r.noDoneEvidence) },
-    { k: '개별 제외', hint: '코드의 RECORD_FIXES · 시트 대시보드 제외 탭으로 인입 현황 · 처리 내역 · 집계에서 뺀 건(확인용)', rows: REC_EXCLUDED, extra: r => `<span class="muted">${esc(r.excludeWhy || '')}</span>` },
-    // 2026-11-15: 상담 내역에 없는 슬랙 글(기준일부터 · 기준일 전에 시트 줄을 지워 떨어져 나온 글)은 건으로 세지 않고 여기에만.
-    { k: '시트에 없는 슬랙 글', hint: '슬랙 접수 탭에는 있지만 상담 내역에 없는 글(시트에서 지운 줄 · 같은 상담을 다시 올린 글). 세지 않아요. 넣으려면 상담 내역에 줄을 넣어 주세요(확인용)',
-      rows: SLACK_ONLY, extra: r => `<span class="muted">${esc(cleanText(r.title || '', 60))}</span>${r.slackLink ? ` <a class="link" href="${esc(r.slackLink)}" target="_blank" rel="noopener">슬랙 ↗</a>` : ''}` },
-    // 2026-11-14: VOC · 통합 이슈는 시트 줄만이라, 시트에 없는 협업채널 워크플로 글은 여기서만 보입니다.
-    { k: '시트에 없는 협업채널 글', alert: true, hint: '협업채널 [개선요청] · [오류] 워크플로 글인데 컴포즈 시트에 없어 VOC · 통합 이슈에 안 보여요. 컴포즈 시트에 직접 넣어 주세요',
-      rows: COLLAB_ONLY, extra: r => `<span class="muted">${esc(r.title || '')}</span>${r.slackLink ? ` <a class="link" href="${esc(r.slackLink)}" target="_blank" rel="noopener">슬랙 ↗</a>` : ''}` }
-  ];
-  const total = groups.slice(0, 4).concat(groups.filter(g => g.alert)).reduce((n, g) => n + g.rows.length, 0), key = 'chk:all', o = OPEN.has(key);
-  return `<div class="card" style="margin-top:16px"><div class="card-head"><h3>데이터 점검 <span class="tag ${total ? 'warn' : 'ok'}">${total ? `확인 필요 ${num(total)}건` : '이상 없음'}</span></h3><div style="display:flex; align-items:center; gap:8px"><span class="hint">${DATA_FROM} 이후 전체 · 내부용</span><button class="btn sm" data-toggle-key="${key}" aria-expanded="${o}">${o ? '접기 ▴' : '펼치기 ▾'}</button></div></div>
-    <div class="chk-sum">${groups.map(g => `<span>${esc(g.k)} <b>${num(g.rows.length)}</b></span>`).join('')}</div>
-    ${o ? groups.filter(g => g.rows.length).map(g => `<div class="chk-grp"><div class="chk-h"><b>${esc(g.k)}</b> <span class="hint">${esc(g.hint)}</span></div>${g.rows.slice(0, 30).map(r => line(r, g.extra && g.extra(r))).join('')}${g.rows.length > 30 ? `<div class="muted">외 ${num(g.rows.length - 30)}건</div>` : ''}</div>`).join('') : ''}</div>`;
-}
-
 /* 사전체크 매뉴얼(내부용): 설치 리스트 시트 '사전체크 매뉴얼' 탭을 단계별로 보여 줍니다. 사진은 눌러서 크게 봅니다. */
 let MAN = null, MAN_ERR = '', MAN_URL = '', MAN_EDIT = '', MAN_DEL = '', MAN_BUSY = false, MAN_SAVE_ERR = '';
 function manDemo() {
@@ -3109,6 +3192,7 @@ function render() {
   document.querySelectorAll('.view-tab').forEach(b => b.classList.toggle('active', b.dataset.v === view && (!b.classList.contains('parent') || (b.dataset.v === 'happy' && hcSubHidden))));
   document.querySelectorAll('.view-tab.parent').forEach(b => b.classList.toggle('in', b.dataset.v === 'records' ? CONSULT_VIEWS.includes(view) : b.dataset.v === 'happy' ? isHappyView(view) && !hcSubHidden : ['principles', 'incident', 'happycall', 'precheck'].includes(view)));
   syncHcCounts();
+  { const n = document.getElementById('chkNavN'); if (n) { const c = checkCount(); n.textContent = c ? String(c) : ''; n.title = c ? '확인할 것 ' + c + '건' : ''; } }
   const t = TITLES[view];
   document.title = `${t[0]} · 컴포즈 통합 대시보드`;
   document.getElementById('pgSub').innerHTML = `<b>${t[0]}</b> · ${t[1]}${GUIDE_VIEWS.includes(view) || ['updates', 'precheck'].includes(view) ? '' : ' · ' + (view === 'report' ? ymLabel(month) : CONSULT_VIEWS.includes(view) || view === 'overview' ? perLabel() : view === 'equip' || isHappyView(view) ? '전체 기간' : scopes()[scope])}`;
@@ -3145,6 +3229,7 @@ function showData(raw) {
   clearInterval(LOAD_TICK);
   normalizeWords(raw);
   buildModel(raw);
+  syncChecks(raw); applySaved();   // 2026-11-16 데이터 점검
   document.getElementById('dataBadge').textContent = raw.demo ? '가상 데이터 미리보기' : `실데이터 · ${raw.now.slice(5)} 기준`;
   document.getElementById('csTime').textContent = raw.demo ? '가상' : `${raw.now.slice(5)} 읽음`;
   const u = raw.remote && raw.remote.updatedAt || {};
@@ -3170,6 +3255,18 @@ function showError(e) { clearInterval(LOAD_TICK); const at = String(e && e.stack
 let LOAD_TICK = 0;
 
 const host = document.getElementById('viewHost');
+// 데이터 점검(2026-11-16): 고치기 · 저장 · 확인 완료 · 되돌리기, 고치는 중인 값은 DRAFT에(자동 새로고침에도 남게)
+host.addEventListener('click', e => {
+  const ed = e.target.closest('[data-chk-edit]'); if (ed) { const k = 'edit:' + ed.dataset.chkEdit; OPEN.has(k) ? OPEN.delete(k) : OPEN.add(k); render(); return; }
+  const cc = e.target.closest('[data-chk-cancel]'); if (cc) { OPEN.delete('edit:' + cc.dataset.chkCancel); delete DRAFT[cc.dataset.chkCancel]; render(); return; }
+  const sv = e.target.closest('[data-chk-save]'); if (sv) { chkSave(sv.dataset.chkSave, sv); return; }
+  const ok = e.target.closest('[data-chk-ok]'); if (ok) { chkMark(ok.dataset.chkOk, ok.dataset.note || '', true, ok); return; }
+  const un = e.target.closest('[data-chk-undo]'); if (un) { chkMark(un.dataset.chkUndo, '', false, un); return; }
+});
+['input', 'change'].forEach(type => host.addEventListener(type, e => {
+  const f = e.target.closest && e.target.closest('[data-chk-f]'); if (!f) return;
+  const id = f.closest('[data-chk-form]').dataset.chkForm; (DRAFT[id] = DRAFT[id] || {})[f.dataset.chkF] = f.value;
+}));
 document.addEventListener('toggle', e => { const d = e.target, k = d && d.dataset && d.dataset.dkey; if (k) d.open ? DET_OPEN.add(k) : DET_OPEN.delete(k); }, true);
 document.querySelectorAll('.view-tab').forEach(b => b.addEventListener('click', () => { document.body.classList.remove('side-open'); syncSide(); view = b.dataset.v; OPEN.clear(); DET_OPEN.clear(); NAV_BACK = null; Object.keys(CARDF).forEach(k => delete CARDF[k]); render(); window.scrollTo(0, 0); }));
 document.getElementById('modeSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; mode = b.dataset.m; document.body.classList.toggle('share', mode === 'share'); document.querySelectorAll('#modeSeg button').forEach(x => { x.classList.toggle('on', x === b); x.classList.toggle('share', x === b && mode === 'share'); }); render(); });
@@ -3407,7 +3504,7 @@ const NAV_DESC = {
   process: ['처리 내역', '들어온 문의 전체를 처리 방식(CS · 원격지원 · 현장지원 · 토스플레이스 확인)별로 보여 줘요.', '건마다 처리 상태 · 담당 · 걸린 시간을 확인할 수 있어요.'],
   issues: ['통합 이슈', '매장 한 곳의 설정 오류나 여러 매장에 걸친 오류를 모아 둔 곳이에요.', '오류가 언제 생겼고 지금 어떤 상태인지 확인할 수 있어요.'],
   voc: ['VOC', '매장에서 요청한 기능 개선 사항을 모아 보여 줘요.', '어떤 불편이 있었고 무엇을 요청했는지, 어떻게 조치했는지 볼 수 있어요.'],
-  cands: ['데이터 연결', '대시보드가 읽는 콜라비연동 시트 · 슬랙 기록이 잘 이어졌는지 보여 줘요(내부용).', '고칠 것은 시트에서 고치면 다음 갱신에 반영돼요.'],
+  cands: ['데이터 점검', '처리 중인 건 · 빈칸 · 시트에 없는 글처럼 대시보드에 문제로 보이는 건을 모아 보여 줘요(내부용).', '[고치기]로 고치면 콜라비연동 시트에 저장되고, 고칠 게 없으면 [확인 완료]를 눌러요.'],
   'p:happy': ['해피콜', '매장에 먼저 전화해 사용 현황을 확인한 기록을 모아 보여 줘요.', '신규 설치 해피콜과 교육 및 기타 통화로 나눠 볼 수 있어요.'],
   happy: ['해피콜 전체', '해피콜 유형별로 몇 건을 진행했는지 한눈에 보여 줘요.', '최근에 건 통화도 함께 확인할 수 있어요.'],
   hc_new: ['신규 설치', '장비를 새로 설치한 매장에 사용 상태를 확인한 결과예요.', '결제 · 출력 · 설치 기사 응대 같은 질문별로 매장 답변을 볼 수 있어요.'],
