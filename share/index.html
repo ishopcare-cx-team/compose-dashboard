@@ -1684,8 +1684,8 @@ function perControls() {
 }
 function prevScope(r) { if (scope === '7d') return r.at >= addDay(TODAY, -14) && r.at < addDay(TODAY, -7); if (scope === '30d') return r.at >= addDay(TODAY, -60) && r.at < addDay(TODAY, -30); return r.date.slice(0, 7) === prevYM(scope.slice(1)); }
 const TITLES = {
-  overview: ['전체현황', 'CX 상담 + 원격 처리 통합 현황'], records: ['인입 현황', '고객센터 · 원격팀 · OS로 들어온 컴포즈 문의 전체'],
-  process: ['처리 내역', '원격팀 처리 구분 내역'],
+  overview: ['전체현황', 'CX 상담 + 원격 처리 통합 현황'], records: ['인입 현황', '고객센터 · 원격팀 · 현장 · SV · 해피콜로 들어온 컴포즈 문의 전체'],
+  process: ['처리 내역', '문의별 처리 방식 · 상태 · 담당'],
   issues: ['통합 이슈', '매장별 설정 오류 · 전체 오류'], voc: ['VOC', '매장 기능 개선 요청(현상 · 요청 · 조치)'],
   cands: ['데이터 연결', '대시보드가 읽는 시트 · 슬랙 기록의 연결 상태(내부용)'], happy: ['해피콜', '유형별 해피콜 전체 현황'],
   hc_new: ['신규 설치 해피콜', '설치 다음 영업일 · 결제 · 출력 · 기사 응대 · 교육 이해도'], hc_edu: ['교육 및 기타 해피콜', '콜라비 [컴포즈OB] 통화 기록 · 기능 교육 · 매장 요청 사항'],
@@ -1730,7 +1730,16 @@ const firstTouch = r => {
   const c = [R.ackAt, R.startAt, r.toss && r.toss.asked, r.slack && P(r.slack.firstAt)].filter(t => t && t >= R.handoff - 60000);
   return c.length ? new Date(Math.min(...c)) : null;
 };
-const remoteWait = r => { const R = r.remote; if (!R || !R.linked || !R.handoff) return null; if (R.start && Math.abs(R.start - R.handoff) > 2 * 36e5) return null; const t = firstTouch(r); return t ? Math.max(0, (t - R.handoff) / 60000) : null; };
+// 10월 원격 착수는 고정값(2026-11-16 사용자 결정 — 토스플레이스에 '자동화 전 10월은 보정'으로 안내함). 10월엔 착수 시각을 남긴 기록이 없어
+//   예전 계산은 토플 문의 시각을 착수로 셌습니다(6건 평균 14분). 대신 원격팀이 직접 잰 응답 시간(원격팀 대시보드 slack-data.js resp:
+//   원격 AS요청 글 → 원격팀 첫 응답까지 분)을 상담에 매장 + 시각(15분 안)으로 맞춘 8건만 셉니다. 키 = 상담 시각(분까지).
+//   시트 · 원격팀 파일이 바뀌어도 이 값만 쓰고, 원격 응답 기록이 없는 10월 상담은 세지 않습니다. 11월부터는 아래 자동 계산 그대로.
+const REMOTE_START_FIX_BEFORE = new Date(2026, 10, 1);
+const REMOTE_START_FIX = { '2026-10-08 18:18': 2.1, '2026-10-23 17:52': 1.2, '2026-10-27 11:13': 0.8, '2026-10-27 13:25': 2.3,
+  '2026-10-27 19:31': 1.2, '2026-10-27 20:17': 0.7, '2026-10-29 14:00': 1.0, '2026-10-30 20:16': 1.6 };
+const remoteWait = r => {
+  if (r.at && r.at < REMOTE_START_FIX_BEFORE) { const v = r.src === 'cs' && !r.slackOnly ? REMOTE_START_FIX[dt(r.at)] : undefined; return v == null ? null : v; }
+  const R = r.remote; if (!R || !R.linked || !R.handoff) return null; if (R.start && Math.abs(R.start - R.handoff) > 2 * 36e5) return null; const t = firstTouch(r); return t ? Math.max(0, (t - R.handoff) / 60000) : null; };
 const median = a => { if (!a.length) return null; const b = a.slice().sort((x, y) => x - y), m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
 const tossWait = r => r.toss && r.toss.done && r.toss.asked && r.toss.done - r.toss.asked >= 60000 ? (r.toss.done - r.toss.asked) / 60000 : null;
 function stats(rows) {
@@ -1894,7 +1903,7 @@ function viewOverviewBase() {
     + tile('해결 시간', fmtMin(median(solveMins)), '', solveMins.length ? `중앙값 · 평균 ${fmtMin(avg(solveMins))} · ${num(solveMins.length)}건 기준` : '이 기간 없음', { info: '자체 해결로 완료된 건의 접수부터 실제 처리 완료까지 걸린 시간이에요. 토스플레이스 확인 건은 빼요. 오래 걸린 몇 건에 흔들리지 않게 중앙값을 크게 보여 줘요.' }) + `</div>`;
   h += `<div class="grid2 grid-gap"><div class="card"><div class="card-head"><h3>${PER.mode === 'month' ? '주차별' : '일자별'} 처리 추이</h3><span class="hint">합계 ${num(s.total)}건${noPrev ? '' : ` · 이전 기간 ${num(p.total)}건`}</span></div>${dailyChart(rows)}</div>`
     + `<div class="card"><div class="card-head"><h3>처리 흐름 ${src('both')}</h3></div>${methodStack({ mCs: selfDone.length, mRemote: 0, mVisit: 0, mToss: fin.toss.length, mEtc: fin.open.length }, { cs: '자체 해결(해결)', remote: '', visit: '', toss: '토플 확인', etc: '자체 해결(진행 중)' })}<div class="flow-stats">
-        <div class="fstat"><span>CX 상담 → 원격 착수 <small>(원격 채널 담당 확인 이모지)</small></span><div><b>${fmtMin(s.avgWait)}</b><small>평균 · 중앙값 ${fmtMin(s.medWait)}</small></div></div>
+        <div class="fstat"><span>CX 상담 → 원격 착수 <small>(담당 확인 이모지 · 10월은 원격팀 응답 기록)</small></span><div><b>${fmtMin(s.avgWait)}</b><small>평균 · 중앙값 ${fmtMin(s.medWait)}</small></div></div>
         <div class="fstat"><span>토스플레이스 회신 <small>(${num(s.toss)}건 · 대기 ${num(s.tossOpen)})</small></span><div><b>${fmtMin(s.avgToss)}</b><small>평균 · 중앙값 ${fmtMin(s.medToss)}</small></div></div>
         <div class="fstat"><span>현장 방문 <small>(이 기간 · 설치 · 실사 제외)</small></span><div><b>${num(visitN)}</b><small>건</small></div></div></div></div></div>`;
   const catsAll = countBy(rows.filter(r => r.src === 'cs'), r => r.cat), cats = catsAll.slice(0, 10), catsMore = catsAll.slice(10), catOpen = OPEN.has('ov:cats'), chs = countBy(rows, r => r.channel), ins = countBy(rows, r => r.inflow);
@@ -3393,9 +3402,9 @@ const tip = document.getElementById('tip');
 // 사이드바 항목 설명(2026-11-12): 어떤 데이터를 담고 있는지 3줄 안으로. 키 = data-v, 묶음 버튼은 'p:' + data-v
 const NAV_DESC = {
   overview: ['전체현황', '선택한 기간에 문의가 얼마나 들어왔고 어떻게 처리됐는지 한눈에 보여 줘요.', '카드 · 일자별 추이 · 처리 흐름으로 전체 흐름을 확인할 수 있어요.'],
-  'p:records': ['상담 내역', '고객센터 · 원격팀 · OS로 들어온 문의를 여러 관점에서 살펴보는 메뉴예요.', '인입 목록, 처리 과정, 이슈, 개선 요청으로 나눠 볼 수 있어요.'],
-  records: ['인입 현황', '들어온 컴포즈 문의를 한 건씩 목록으로 보여 줘요.', '같은 문의를 여러 번 기록한 건은 한 건으로 묶어서 세요.', '해피콜처럼 우리가 먼저 건 전화는 넣지 않아요.'],
-  process: ['처리 내역', '문의 한 건이 어떤 과정을 거쳐 처리됐는지 보여 줘요.', '원격 지원 · 현장 방문 · 토스플레이스 확인 단계와 걸린 시간을 확인할 수 있어요.'],
+  'p:records': ['상담 내역', '고객센터 · 원격팀 · 현장 · SV · 해피콜로 들어온 문의를 여러 관점에서 살펴보는 메뉴예요.', '인입 목록, 처리 과정, 이슈, 개선 요청으로 나눠 볼 수 있어요.'],
+  records: ['인입 현황', '들어온 컴포즈 문의를 한 건씩 목록으로 보여 줘요.', '콜라비연동 시트 상담 내역 한 줄이 한 건이에요(11/15부터).', '우리가 먼저 건 전화(발신)는 넣지 않고, 해피콜 중 이슈로 접수한 건만 넣어요.'],
+  process: ['처리 내역', '들어온 문의 전체를 처리 방식(CS · 원격지원 · 현장지원 · 토스플레이스 확인)별로 보여 줘요.', '건마다 처리 상태 · 담당 · 걸린 시간을 확인할 수 있어요.'],
   issues: ['통합 이슈', '매장 한 곳의 설정 오류나 여러 매장에 걸친 오류를 모아 둔 곳이에요.', '오류가 언제 생겼고 지금 어떤 상태인지 확인할 수 있어요.'],
   voc: ['VOC', '매장에서 요청한 기능 개선 사항을 모아 보여 줘요.', '어떤 불편이 있었고 무엇을 요청했는지, 어떻게 조치했는지 볼 수 있어요.'],
   cands: ['데이터 연결', '대시보드가 읽는 콜라비연동 시트 · 슬랙 기록이 잘 이어졌는지 보여 줘요(내부용).', '고칠 것은 시트에서 고치면 다음 갱신에 반영돼요.'],
