@@ -832,7 +832,17 @@ const RECORD_FIXES = {
   // 2026-11-16 사용자: 성수코리아IT점 문의(26.10.20-001)로 3개 매장을 같이 조치한 와플 건의 원격팀 묶음 글. 성수코리아IT점은 상담으로, HD올림픽 · 수원인계는 08:53 원격 기록으로 이미 셈
   '26.10.20-R0840': { exclude: true, why: '와플 신메뉴 미표기 3개 매장 묶음 원격 기록(26.10.20-001 · R0853 · R0853-2와 같은 건, 두 번 세지 않음)' },
   // 2026-11-16 사용자: 4분 앞 수원인계점 상담 26.10.27-003(키오스크 포인트 적립 시 고객 조회 불가)과 같은 건을 협업채널에 올린 글('컴포즈커피 인계점 스탬프 적립 불가')
-  '26.10.27-C1728': { exclude: true, why: '수원인계점 스탬프 · 포인트 적립 불가를 협업채널에 다시 올린 글. 같은 건 실제 상담은 26.10.27-003' }
+  '26.10.27-C1728': { exclude: true, why: '수원인계점 스탬프 · 포인트 적립 불가를 협업채널에 다시 올린 글. 같은 건 실제 상담은 26.10.27-003' },
+  // 2026-11-16 사용자: 한 매장 문의로 원격팀이 같이 조치한 매장(선제 조치, 원격팀 처리 결과 없음) — 인입에서 빼고 원래 건 통합 이슈 '영향 매장'으로
+  '26.10.29-R0803': { exclude: true, why: '선제 조치(주문서 미출력, 26.10.29-001 영향 매장)' },
+  '26.10.29-R0803-2': { exclude: true, why: '선제 조치(주문서 미출력, 26.10.29-001 영향 매장)' },
+  '26.10.29-R0803-3': { exclude: true, why: '선제 조치(주문서 미출력, 26.10.29-001 영향 매장)' },
+  '26.10.29-R0803-4': { exclude: true, why: '선제 조치(주문서 미출력, 26.10.29-001 영향 매장)' },
+  '26.10.29-R0803-5': { exclude: true, why: '선제 조치(주문서 미출력, 26.10.29-001 영향 매장)' },
+  '26.10.26-R0808': { exclude: true, why: '선제 조치(앱오더 준비중, 26.10.26-001 영향 매장)' },
+  '26.10.26-R0827': { exclude: true, why: '선제 조치(앱오더 준비중, 26.10.26-001 영향 매장)' },
+  '26.10.20-R0853': { exclude: true, why: '선제 조치(와플 출력, 26.10.20-001 영향 매장)' },
+  '26.10.20-R0853-2': { exclude: true, why: '선제 조치(와플 출력, 26.10.20-001 영향 매장)' }
 };
 // 시트 기준 시작(2026-11-15 결정): 이날부터 들어온 건은 tf 채널 · 콜라비연동 시트 값만 씁니다.
 //   처리 상태 · 처리 방식 · 처리 완료 시각 = 시트 값 그대로, 시트(상담 내역)에 없는 슬랙 글은 데이터 점검으로,
@@ -1040,7 +1050,7 @@ function buildModel(raw) {
       : sl && sl.source === '콜라비' ? '고객센터' : /현장|원격/.test(c.route || '') || postTeam === 'OC' ? '원격팀' : postTeam === 'OS' ? 'OS' : '고객센터';
     return { id: c.receipt || (c.slackOnly ? `${c.at.slice(2, 10).replace(/-/g, '.')}-S${c.at.slice(11, 16).replace(':', '')}` : `CS-${c.at}`), src: 'cs', inflow, slackOnly: !!c.slackOnly, dup: !!c.dup && !isNewDay(at), at, date: ymd(at), store: st ? st.name : (c.verify ? '매장 확인 중' : (c.store || '—')), skey: st ? st.key : '', slack: sl,
       channel: iss && CHANNELS.includes(iss.channel) ? iss.channel : CHANNELS.includes(aiChannel) ? aiChannel : guessChannel([c.major, c.middle, c.minor, c.question].join(' ')),
-      cat: [c.middle, c.minor].filter(Boolean).join(' · ') || c.major || '미분류', catAll: [c.major, c.middle, c.minor].filter(Boolean).join(' · '), io: ioOf(c.io), q: c.qTidy || c.question, a: c.qTidy ? (c.aTidy || '') : c.answer, qRaw: c.questionRaw || c.question, aRaw: c.answerRaw || c.answer, qFull: c.question, aFull: c.answer, tidy: !!c.qTidy, caseSum: isNewDay(at) ? null : c.caseSum || null, summary: isNewDay(at) ? String(c.summary || '').trim() : '', line: c.doneLine || '', caseKey: c.receipt || `${c.at}|${c.store}`, caseFix: c.caseFix || '', caseDone: !!(c.caseSum && /해결/.test(c.caseSum.state || '')) && c.caseFix !== '해제', route: c.route || '—', cx: c.cx || '',
+      cat: [c.middle, c.minor].filter(Boolean).join(' · ') || c.major || '미분류', catAll: [c.major, c.middle, c.minor].filter(Boolean).join(' · '), io: ioOf(c.io), q: c.qTidy || c.question, a: c.qTidy ? (c.aTidy || '') : c.answer, qRaw: c.questionRaw || c.question, aRaw: c.answerRaw || c.answer, qFull: c.question, aFull: c.answer, tidy: !!c.qTidy, caseSum: isNewDay(at) ? null : c.caseSum || null, summary: String(c.summary || '').trim(), line: c.doneLine || '', caseKey: c.receipt || `${c.at}|${c.store}`, caseFix: c.caseFix || '', caseDone: !!(c.caseSum && /해결/.test(c.caseSum.state || '')) && c.caseFix !== '해제', route: c.route || '—', cx: c.cx || '',
       method: c.method || '—', status: c.status || '처리중', doneAt: done, minutes: validMinutes(c.minutes != null ? c.minutes : done ? (done - at) / 60000 : null),
       // 기준일부터 토스플레이스 기록 = 시트 값만(상담 내역 토플 문의 · 완료 시각, 슬랙 접수 협업채널 링크 · 요약). 그 전은 예전대로(아래에서 토플 글을 붙임)
       toss: isNewDay(at) ? (c.tossAsked || (sl && sl.collabLink) ? { asked: P(c.tossAsked), done: P(c.tossDone), slack: sl && (sl.collabLink || sl.collabSum) ? { question: sl.collabSum || '', answer: '', channel: '협업채널', link: sl.collabLink || '' } : null } : null)
@@ -1295,7 +1305,9 @@ function buildModel(raw) {
   //   2026-11-15: 콜라비연동 시트 '대시보드 제외' 탭 A열에 적은 번호도 뺍니다(시트 밖 기록 · 현장방문 · 토플 줄을 시트에서 뺄 때).
   const SHEET_EXCLUDE = new Set((raw.recordExclude || []).map(x => String(x).trim()).filter(Boolean));
   // 2026-11-15: 시트에 없는 줄의 담당자(콜라비연동 시트 '대시보드 담당자' 탭 A열 번호 · B열 이름)
-  OWNER_FIX = raw.ownerFix || {};
+  // 2026-11-16: '대시보드 보정' 탭(A 번호 · B 내용 · C 처리 결과 · D 담당자)의 담당자도 같이(같은 번호면 보정 탭이 먼저)
+  OWNER_FIX = Object.assign({}, raw.ownerFix || {}, Object.fromEntries(Object.entries(raw.recordFix || {}).filter(([, f]) => f && f.owner).map(([id, f]) => [id, f.owner])));
+  RECS.forEach(r => { const f = (raw.recordFix || {})[r.id]; if (f) { if (f.text) r.fixText = f.text; if (f.result) r.fixResult = f.result; } });
   REC_EXCLUDED = RECS.filter(r => (RECORD_FIXES[r.id] || {}).exclude || SHEET_EXCLUDE.has(r.id)).map(r => Object.assign(r, { excludeWhy: (RECORD_FIXES[r.id] || {}).why || '시트 대시보드 제외 탭' }));
   if (REC_EXCLUDED.length) RECS = RECS.filter(r => !REC_EXCLUDED.includes(r));
   if (SHEET_EXCLUDE.size) { VISIT_ONLY = VISIT_ONLY.filter(v => !SHEET_EXCLUDE.has(v.id)); TOSS_ONLY = TOSS_ONLY.filter(t => !SHEET_EXCLUDE.has(t.id)); }
@@ -2112,7 +2124,7 @@ function tlItems(r) {
   const S = r.slack || {}, R = r.remote, T = r.toss, V = r.visit, items = [];
   const add = (step, label, t, text, tag, full) => items.push({ step, label, t: t || null, text: finishKo(text || ''), tag: tag || '', full: full || text || '' });
   const via = r.inflow === 'OS' ? 'OS' : r.src === 'oc' ? (r.cxHandoff || r.inflow === '고객센터' ? 'CX' : '원격') : r.inflow === '고객센터' ? 'CX' : r.inflow === '법인폰·수기' ? '법인폰' : r.inflow || 'CX';
-  const lines = a => a.filter(Boolean).join('\n'), L = (r.caseSum && r.caseSum.lines) || {};
+  const lines = a => a.filter(Boolean).join('\n'), L = {};   // (2026-11-16) 예전 AI 건별 정리(단계 한 마디)는 쓰지 않음 — 시트 · 기록 글 그대로
   // ① 인입
   add(1, `인입 · ${via}`, r.at, L.intake || compress(r.q) || r.cat, '', lines([r.qFull || r.q, r.cat ? `문의유형: ${r.cat}` : '', r.channel ? `장비·채널: ${r.channel}` : '', r.cx ? `접수: ${fullName(r.cx)}` : '']));
   // 상담 시트 O열(조치 내용) 2026-11-13: 원격팀 처리 확인 · 최종 해결에 씀
@@ -2159,11 +2171,11 @@ function tlItems(r) {
     const endAt = r.doneAt || P(S.actionAt) || P(S.doneAt) || visitEnd || (r.minutes != null ? new Date(r.at.getTime() + r.minutes * 60000) : null);
     const visitText = V && !V.pending ? `현장 ${V.kind || '방문'} 조치 완료${V.action ? ` · ${V.action}` : V.equip ? ` · ${V.equip}` : ''}` : '';
     // 처리 결과 = 상담 시트 O열(조치 내용)이 있으면 그 값 그대로(2026-11-13 결정). '결제 미완료 건…'처럼 원인 설명의 낱말로 빼지 않습니다.
-    const result = oCol || [S.action, visitText, r.caseSum && r.caseSum.result, R && R.action, R && R.result, tossAns, r.method === 'CS' ? r.a : ''].find(t => t && !noContent(t)) || '';
+    const result = r.fixResult || oCol || [S.action, visitText, r.caseSum && r.caseSum.result, R && R.action, R && R.result, tossAns, r.method === 'CS' ? r.a : ''].find(t => t && !noContent(t)) || '';
     // 앞 단계(원격팀 처리 확인 등)에 같은 내용이 이미 있으면(조치 내용 = 원격팀 결과, 2026-11-13) 최종 해결은 AI 처리 한 줄('증상, 조치')의 조치 부분으로 씁니다.
     const norm = t => String(t || '').replace(/[^0-9A-Za-z가-힣]/g, ''), shown = new Set(items.filter(x => x.step > 1).map(x => norm(x.text)));
     //   최종 해결 = 전체 상담의 해결 결과(AI 처리 한 줄 '증상, 조치' 전체)
-    let endText = oCol || [L.result, compress(result)].find(t => t && !clash(t, '완료')) || '처리 완료';
+    let endText = r.fixResult || oCol || [L.result, compress(result)].find(t => t && !clash(t, '완료')) || '처리 완료';
     if (shown.has(norm(finishKo(endText)))) endText = [r.line, R && R.line].find(t => t && !noContent(t) && !shown.has(norm(finishKo(t)))) || endText;
     const doneBy = SR ? ownerOf(r) : '';
     add(5, `최종 해결${doneBy ? ` · ${doneBy}` : ''}`, endAt, endText, '해결',
@@ -2210,9 +2222,11 @@ function tlCards(r, proc) {
 }
 // 핵심 문제 한 줄: Claude 정리의 인입 핵심 → 문의를 줄인 말 → 문의유형. 인입 현황 상세 맨 위 · 처리 내역 '내용' 칸
 function recHeadline(r) {
-  if (isNewDay(r.at) && r.summary) return r.summary;   // (2026-11-15) 시트 상담 내역 '요약' 칸(AI가 쓰고, 손으로 고치면 그 값)
-  const C = r.caseSum, core = (r.viaCollab ? compress(r.toss && r.toss.slack && r.toss.slack.question) : compress(r.q)).replace(/^\d{1,2}\/\d{1,2}\s*/, '').replace(/[.]\s*최종 해결 후.*$/, '') || r.cat;
-  return String((C && C.lines && C.lines.intake) || core || '').replace(/[,·]?\s*(확인\s*중|진행\s*중|대기\s*중)$/, '');
+  if (r.fixText) return r.fixText;   // (2026-11-16) 시트 '대시보드 보정' 탭 B열(내용)
+  if (r.summary) return r.summary;   // 시트 상담 내역 '요약' 칸(11/15부터 AI가 쓰고 손 수정 유지, 11/14까지 건도 손으로 적으면 이것)
+  // (2026-11-16) 예전 AI 건별 정리는 '내용'에 쓰지 않음 — 같은 매장 다른 기록을 섞어 틀리게 요약한 일(26.10.29-004)
+  const core = (r.viaCollab ? compress(r.toss && r.toss.slack && r.toss.slack.question) : compress(r.q)).replace(/^\d{1,2}\/\d{1,2}\s*/, '').replace(/[.]\s*최종 해결 후.*$/, '') || r.cat;
+  return String(core || '').replace(/[,·]?\s*(확인\s*중|진행\s*중|대기\s*중)$/, '');
 }
 function recDetail(r, proc) {
   const steps = [], done = r.status === '완료';
@@ -2258,7 +2272,7 @@ function recDetail(r, proc) {
   const nexts = (r.nextRecs || []).map(n => `${n.id}(${dt(n.at).slice(5)})`).join(', ');
   // 1차 대응: #컴포즈-tf 글에 [원격지원] 이모지가 처음 붙은 시각(TF 자동화 v0.8.54). 없으면 첫 반응 시각.
   const firstT = r.slack && (P(r.slack.remoteAt) || P(r.slack.firstAt)), firstLabel = firstT ? `${dt(firstT).slice(5)}${r.slack.remoteAt ? ' 원격지원' : ' 첫 반응'} · 접수 후 ${fmtMin(Math.max(0, (firstT - r.at) / 60000))}` : '';
-  const chips = [[r.storeFrom ? `${r.storeFrom}(${r.verify && r.verify.by === 'Claude' ? 'Claude 비교' : '문의 낱말 일치'})` : '', '매장 확인'], [r.storeFixed ? '대시보드에서 직접 지정' : '', '매장 확인'], [r.sameIds ? `${r.sameIds.join(', ')} 합침(같은 문의 24시간 안)` : '', '같은 문의'], [r.special, '특이사항'], [r.dupIds ? `${r.dupIds.join(', ')} 합침(중복 업로드)` : '', '중복'], [firstLabel, '1차 대응'], [nexts ? `이후 재인입 ${nexts}` : '', '연결'], [r.method, '처리 방식'], [r.channel, '장비·채널'], [r.cat, '문의유형'], [affText(r), '함께 조치'], [total != null && done ? `총 ${fmtMin(total)}` : '', '소요']].filter(x => x[0] && x[0] !== '—');
+  const chips = [[r.storeFrom ? `${r.storeFrom}(${r.verify && r.verify.by === 'Claude' ? 'Claude 비교' : '문의 낱말 일치'})` : '', '매장 확인'], [r.storeFixed ? '대시보드에서 직접 지정' : '', '매장 확인'], [r.sameIds ? `${r.sameIds.join(', ')} 합침(같은 문의 24시간 안)` : '', '같은 문의'], [r.special, '특이사항'], [r.dupIds ? `${r.dupIds.join(', ')} 합침(중복 업로드)` : '', '중복'], [firstLabel, '1차 대응'], [nexts ? `이후 재인입 ${nexts}` : '', '연결'], [r.method, '처리 방식'], [r.channel, '장비·채널'], [r.cat, '문의유형'], [affText(r), '함께 조치'], [total != null && done ? (total < 1 ? '상담 중 해결' : `총 ${fmtMin(total)}`) : '', '소요']].filter(x => x[0] && x[0] !== '—');
   // 건별 정리(Claude가 기록을 시간순으로 읽고 만든 결과)가 있으면 맨 위에 결과 · 남은 일 · 타임라인을 두고, 단계 카드는 접어 둡니다.
   const C = r.caseSum, stCls = s => /해결/.test(s) ? 'ok' : /이관/.test(s) ? 'purple' : /확인/.test(s) ? 'red' : 'warn';
   // 요약 한 줄: Claude 정리(증상 · 거친 대응 · 해결 방법) → 없으면 단계에서 만든 한 줄
@@ -2676,7 +2690,7 @@ function procDetail(x) {
     const tag = done ? '해결' : V && V.pending ? '예정' : '진행 중', facts = [[x.proc, '처리 방식'], [x.channel, '장비·채널'], [x.id, '접수번호']].filter(f => f[0] && f[0] !== '—');
     return `<div class="flow"><div class="facts">${facts.map(([v, k]) => `<span>${k} <b>${esc(v)}</b></span>`).join('')}</div>${tlcHtml(items)}</div>`;
   }
-  const r = x.rec, C = (r && r.caseSum) || {}, R = r && r.remote, T = r ? r.toss : x.tossOnly, V = r ? r.visit : x.visit;
+  const r = x.rec, C = {} /* (2026-11-16) 예전 AI 건별 정리는 쓰지 않음 */, R = r && r.remote, T = r ? r.toss : x.tossOnly, V = r ? r.visit : x.visit;
   const issue = C.issue || (r ? r.q : (T && T.slack && T.slack.question) || (V ? `현장 ${V.kind} 요청 · ${V.equip || ''}` : ''));
   const steps = [];
   if (r && r.a) steps.push(`CX 안내: ${r.a}`);
@@ -2684,7 +2698,7 @@ function procDetail(x) {
   if (T) steps.push(`토스플레이스 확인 요청${T.slack && T.slack.question ? `: ${T.slack.question}` : ''}`);
   if (V) steps.push(`현장 ${V.kind || '방문'}${V.by ? ` (${V.by})` : ''}`);
   const process = C.process || steps.map(t => cleanText(t, 120)).join(' → ');
-  const result = C.result || (r && r.slack && r.slack.action) || (R && R.action) || (T && T.slack && T.slack.answer) || (V && V.action) || (x.status === '완료' ? '처리 완료' : '');
+  const result = (r && r.fixResult) || C.result || (r && r.slack && r.slack.action) || (R && R.action) || (T && T.slack && T.slack.answer) || (V && V.action) || (x.status === '완료' ? '처리 완료' : '');
   const info = [['처리 구분', x.proc], ['처리 상태', x.status], ['담당', x.owner], ['처리 시간', r && r.minutes != null ? (r.minutesBy === '상담 중 해결' ? '상담 중 해결' : fmtMin(r.minutes)) : ''], ['접수번호', r ? r.id : x.id]].concat(affText(r) ? [['함께 조치', affText(r)]] : []);
   return `<div class="vp" style="--n:4">${infoBox(info)}${panel('asis', '!', '현상', cleanText(issue, 260))}${panel('info', '→', '처리 과정', cleanText(process, 320))}${panel('tobe', '✓', '결과', cleanText(result, 260))}${panel('cause', '?', '알게 된 원인', C.cause || '')}</div>`
     + (r ? `<div class="hint" style="margin-top:4px">시각별 흐름은 <button class="btn sm" data-gorec="${esc(r.id)}">인입 현황에서 보기 →</button></div>` : '');
