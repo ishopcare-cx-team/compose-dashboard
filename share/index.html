@@ -233,7 +233,7 @@
   tr.own-open{cursor:pointer} tr.own-open:hover td{background:var(--line-soft)}
   .chart .axis{fill:var(--gray2); font-size:10.5px}
   .chart .gl{stroke:var(--line-soft); stroke-width:1}
-  .chart .axis.we{fill:var(--red)}
+  .chart .axis.hol{fill:var(--red)} .chart .axis.sat{fill:var(--s1)}
   .chart .bar{fill:var(--bar)}
   .chart .hit{fill:transparent}
   .chart g.on .bar{fill:var(--accent-deep)}
@@ -1778,10 +1778,22 @@ function stats(rows) {
     toss: rows.filter(r => r.toss).length, tossOpen: rows.filter(r => r.toss && !r.toss.done).length,
     avgVisitDays: avg(rows.filter(r => r.method === '현장지원' && r.visit && !r.visit.pending && r.visit.days != null).map(r => r.visit.days)), stores: new Set(rows.map(r => r.skey)).size };
 }
+// 공휴일(처리 추이 날짜 빨간 글자). 대체공휴일 · 선거일 포함 — 해마다 다음 해 것을 더합니다(2026-11-16: 2026년).
+const HOLIDAYS = { '2026-01-01': '신정', '2026-02-16': '설날 연휴', '2026-02-17': '설날', '2026-02-18': '설날 연휴', '2026-03-01': '삼일절', '2026-03-02': '대체공휴일',
+  '2026-05-05': '어린이날', '2026-05-24': '부처님오신날', '2026-05-25': '대체공휴일', '2026-06-03': '지방선거일', '2026-06-06': '현충일', '2026-08-15': '광복절',
+  '2026-08-17': '대체공휴일', '2026-09-24': '추석 연휴', '2026-09-25': '추석', '2026-09-26': '추석 연휴', '2026-10-03': '개천절', '2026-10-05': '대체공휴일',
+  '2026-10-09': '한글날', '2026-12-25': '성탄절' };
+// 처리 추이 제목 옆 기간: 당일 '(11월 12일)', 주간 · 기간 상세 '(11/9 ~ 11/15)', 월별 '(11월)'
+function trendPeriod() {
+  const [s, e] = perRange(), md = d => `${d.getMonth() + 1}/${d.getDate()}`;
+  if (PER.mode === 'month') return ` (${+String(PER.month).slice(5, 7)}월)`;
+  if (PER.mode === 'day') return ` (${s.getMonth() + 1}월 ${s.getDate()}일)`;
+  return s.getFullYear() < 2000 ? '' : ` (${md(s)} ~ ${md(addDay(e, -1))})`;
+}
 function dailyChart(rows) {
   // 처리 추이(2026-11-16 개편, 사용자 확정): 당일 = 시간대별, 주간 · 월별 · 기간 상세 = 하루씩. 모든 막대 위에 숫자.
   //   월별: 날짜 칸에 일자만(1, 2, 3 …, 제목 옆에 '(10월)'), 주간: '11/9 월'처럼 월/일 요일, 기간 상세(10일 넘게): 월/일을 몇 칸마다.
-  //   토 · 일은 날짜 글자만 빨갛게(그래프 배경 표시 없음). 막대 폭은 22px까지.
+  //   날짜 글자: 일요일 · 공휴일 빨강, 토요일 파랑(그래프 배경 표시 없음). 막대 폭은 22px까지.
   if (!rows.length) return '<div class="empty">기간 안에 상담이 없습니다.</div>';
   const md = d => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`, dow = d => '일월화수목금토'[P(d).getDay()];
   let bars = [];
@@ -1799,7 +1811,8 @@ function dailyChart(rows) {
     bars = days.map((d, i) => {
       const wd = P(d).getDay();
       const axis = PER.mode === 'month' ? String(+d.slice(8, 10)) : days.length <= 10 ? `${md(d)} ${dow(d)}` : i % every === 0 ? md(d) : '';
-      return { v: m[d] || 0, tip: `${md(d)} (${dow(d)})`, red: wd === 0 || wd === 6, axis };
+      const hol = HOLIDAYS[d] || '';
+      return { v: m[d] || 0, tip: `${md(d)} (${dow(d)})${hol ? ' ' + hol : ''}`, tone: wd === 0 || hol ? 'hol' : wd === 6 ? 'sat' : '', axis };
     });
   }
   const W = 760, H = 220, L = 30, R = 8, T = 18, B = 26, iw = W - L - R, ih = H - T - B;
@@ -1812,7 +1825,7 @@ function dailyChart(rows) {
     const path = h > 0 ? `M${x},${T + ih}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${T + ih}Z` : '';
     g += `<g data-tip="<b>${v}건</b><br>${b.tip}"><rect class="hit" x="${L + i * slot}" y="${T}" width="${slot}" height="${ih}"/>${path ? `<path class="bar" d="${path}"/>` : ''}</g>`;
     if (v) g += `<text class="lbl" x="${cx}" y="${y - 5}" text-anchor="middle"${small}>${v}</text>`;
-    if (b.axis) g += `<text class="axis${b.red ? ' we' : ''}" x="${cx}" y="${H - 8}" text-anchor="middle"${small}>${b.axis}</text>`;
+    if (b.axis) g += `<text class="axis${b.tone ? ' ' + b.tone : ''}" x="${cx}" y="${H - 8}" text-anchor="middle"${small}>${b.axis}</text>`;
   });
   return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${PER.mode === 'day' ? '시간대별' : '일자별'} 처리 건수">${g}</svg></div>`;
 }
@@ -1933,7 +1946,7 @@ function viewOverviewBase() {
     + tile('자체 해결', num(self.length), '건', `해결 ${num(selfDone.length)}건 · 진행 중 ${num(fin.open.length)}건`, { src: src('both'), c: 'var(--s1)', go: '자체 해결', info: '토스플레이스로 넘기지 않고 고객센터(CS) 안내 · 원격 안내 · 현장 방문으로 맡은 건이에요. 해결은 처리 완료된 건, 진행 중은 아직 완료 전인 건이에요.' })
     + tile('토플 확인', num(tossRows.length), '건', `처리완료 ${num(tossDone)}건 · 확인중 ${num(tossRows.length - tossDone)}건`, { src: '<span class="src-tag src-toss">토플</span>', c: 'var(--purple)', go: '토플 확인', info: '토스플레이스에 확인을 넘긴 건이에요. 원격을 거쳤어도 마지막에 토스플레이스로 넘어갔으면 여기에만 세요. 처리완료는 확인 후 완료된 건, 확인중은 아직 끝나지 않은 건이에요.' })
     + tile('해결 시간', fmtMin(median(solveMins)), '', solveMins.length ? `중앙값 · 평균 ${fmtMin(avg(solveMins))} · ${num(solveMins.length)}건 기준` : '이 기간 없음', { info: '자체 해결로 완료된 건의 접수부터 실제 처리 완료까지 걸린 시간이에요. 토스플레이스 확인 건은 빼요. 오래 걸린 몇 건에 흔들리지 않게 중앙값을 크게 보여 줘요.' }) + `</div>`;
-  h += `<div class="grid2 grid-gap"><div class="card"><div class="card-head"><h3>${PER.mode === 'day' ? '시간대별' : '일자별'} 처리 추이${PER.mode === 'month' ? ` (${+String(PER.month).slice(5, 7)}월)` : ''}</h3><span class="hint">합계 ${num(s.total)}건${noPrev ? '' : ` · 이전 기간 ${num(p.total)}건`}</span></div>${dailyChart(rows)}</div>`
+  h += `<div class="grid2 grid-gap"><div class="card"><div class="card-head"><h3>${PER.mode === 'day' ? '시간대별' : '일자별'} 처리 추이${trendPeriod()}</h3><span class="hint">합계 ${num(s.total)}건${noPrev ? '' : ` · 이전 기간 ${num(p.total)}건`}</span></div>${dailyChart(rows)}</div>`
     + `<div class="card"><div class="card-head"><h3>처리 흐름 ${src('both')}</h3></div>${methodStack({ mCs: selfDone.length, mRemote: 0, mVisit: 0, mToss: fin.toss.length, mEtc: fin.open.length }, { cs: '자체 해결(해결)', remote: '', visit: '', toss: '토플 확인', etc: '자체 해결(진행 중)' })}<div class="flow-stats">
         <div class="fstat"><span>CX 상담 → 원격 착수 <small>(담당 확인 이모지 · 10월은 원격팀 응답 기록)</small></span><div><b>${fmtMin(s.avgWait)}</b><small>평균 · 중앙값 ${fmtMin(s.medWait)}</small></div></div>
         <div class="fstat"><span>토스플레이스 회신 <small>(${num(s.toss)}건 · 대기 ${num(s.tossOpen)})</small></span><div><b>${fmtMin(s.avgToss)}</b><small>평균 · 중앙값 ${fmtMin(s.medToss)}</small></div></div>
